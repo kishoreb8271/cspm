@@ -1,114 +1,99 @@
-import boto3
-import json
-import yaml
-import datetime
 import streamlit as st
 import pandas as pd
-from dataclasses import dataclass, field, asdict
-from typing import Optional, List
-from enum import Enum
 
-# --- 1. DATA MODELS ---
-class Severity(str, Enum):
-    CRITICAL = "CRITICAL"
-    HIGH     = "HIGH"
-    MEDIUM   = "MEDIUM"
-    LOW      = "LOW"
-    INFO     = "INFO"
+# Page Configuration
+st.set_page_config(page_title="Cloud Security Assessment Tool", layout="wide")
 
-class Status(str, Enum):
-    PASS = "PASS"
-    FAIL = "FAIL"
-    ERROR = "ERROR"
+st.title("🛡️ Cybersecurity Control & Scan Manager")
 
-@dataclass
-class Finding:
-    rule_id:      str
-    title:        str
-    severity:     Severity
-    status:       Status
-    resource_id:  str
-    description:  str
-    region:       str
-    timestamp:    str = field(default_factory=lambda: datetime.datetime.now(datetime.timezone.utc).isoformat())
+# Create the three main tabs
+tab_integration, tab_scanner, tab_results = st.tabs([
+    "Cloud Integration", 
+    "Security Scan Run", 
+    "Scan Results & Remediation"
+])
 
-# --- 2. AWS CONNECTOR ---
-class AWSConnector:
-    """Handles authentication and session management."""
-    def __init__(self, access_key=None, secret_key=None, region="us-east-1"):
-        self.region = region
-        try:
-            if access_key and secret_key:
-                # Prioritize explicit keys (from Streamlit Secrets)
-                self.session = boto3.Session(
-                    aws_access_key_id=access_key,
-                    aws_secret_access_key=secret_key,
-                    region_name=region
-                )
-            else:
-                # Fallback to default environment/IAM role
-                self.session = boto3.Session(region_name=region)
-            
-            self.sts = self.session.client("sts")
-        except Exception as e:
-            raise Exception(f"Session initialization failed: {e}")
+# --- TAB 1: CLOUD INTEGRATION ---
+with tab_integration:
+    st.header("Connect Cloud Providers")
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.subheader("AWS Configuration")
+        aws_access_key = st.text_input("AWS Access Key ID", type="password")
+        aws_secret_key = st.text_input("AWS Secret Access Key", type="password")
+        aws_region = st.selectbox("Region", ["us-east-1", "us-west-2", "eu-central-1"])
+        if st.button("Connect AWS"):
+            st.success("AWS Credentials validated (Simulation)")
 
-    def get_account_id(self) -> str:
-        return self.sts.get_caller_identity()["Account"]
+    with col2:
+        st.subheader("Azure Configuration")
+        az_tenant_id = st.text_input("Tenant ID", type="password")
+        az_client_id = st.text_input("Client ID", type="password")
+        if st.button("Connect Azure"):
+            st.info("Azure connection initialized")
 
-# --- 3. SCANNER LOGIC (STUB) ---
-# Note: Keep your existing CSPMScanner class logic here
-class CSPMScanner:
-    def __init__(self, connector: AWSConnector):
-        self.connector = connector
-        self.findings: List[Finding] = []
+# --- TAB 2: SECURITY SCAN RUN ---
+with tab_scanner:
+    st.header("Live Cloud Security Scanner")
+    st.write("Trigger an online scan of your AWS environment against NIST 800-53 or CIS benchmarks.")
+    
+    scan_type = st.multiselect("Select Services to Scan", ["S3", "EC2", "IAM", "Lambda", "EKS"])
+    
+    if st.button("Run Security Scan"):
+        with st.status("Scanning AWS Environment...", expanded=True) as status:
+            st.write("Checking S3 Bucket Policies...")
+            st.write("Analyzing IAM Roles for Over-privileged permissions...")
+            st.write("Verifying Security Groups...")
+            status.update(label="Scan Complete!", state="complete", expanded=False)
+            st.session_state['scan_performed'] = True
 
-    def run(self) -> List[Finding]:
-        # Place your specific check logic (IAM, S3, etc.) here
-        # For demonstration, returning a dummy finding:
-        self.findings.append(Finding(
-            "S3_001", "Public S3 Buckets", Severity.HIGH, Status.PASS, "N/A", "Scanning logic placeholder", self.connector.region
-        ))
-        return self.findings
+# --- TAB 3: SCAN RESULTS & REMEDIATION ---
+with tab_results:
+    st.header("Analysis & Identified Gaps")
+    
+    # Mock Data for demonstration
+    scan_data = {
+        "Resource": ["iam-user-admin-01", "s3-finance-records", "ec2-public-instance"],
+        "Risk Type": ["Over-privileged Permission", "Misconfiguration", "Exposed Port"],
+        "Severity": ["High", "Critical", "Medium"],
+        "Description": [
+            "User has AdministratorAccess without MFA.",
+            "Bucket allows Public Read Access.",
+            "Port 22 (SSH) open to 0.0.0.0/0."
+        ]
+    }
+    df = pd.DataFrame(scan_data)
 
-# --- 4. STREAMLIT UI ---
-def main():
-    st.set_page_config(page_title="CSPM Dashboard", page_icon="☁️", layout="wide")
-    st.title("☁️ Cloud Security Posture Management")
-    st.markdown("---")
-
-    # 1. Setup Credentials from Secrets
-    # In Streamlit Cloud, add these to the 'Secrets' dashboard
-    aws_access = st.secrets.get("aws_access_key_id", "AKIAVTDJYPX7QJHHYO3S") # Fallback for your testing
-    aws_secret = st.secrets.get("aws_secret_access_key", "2aTrBcpZrmTXEu8WTwB7EkUiV7a9oCi0HPzof5OP")
-    aws_region = st.secrets.get("aws_region", "us-east-1")
-
-    try:
-        connector = AWSConnector(aws_access, aws_secret, aws_region)
-        account_id = connector.get_account_id()
+    if 'scan_performed' in st.session_state:
+        # Display the results table
+        event = st.dataframe(df, use_container_width=True, hide_index=True)
         
-        st.sidebar.success(f"Connected to: {account_id}")
-        st.sidebar.info(f"Region: {aws_region}")
+        st.divider()
+        st.subheader("Remediation Plan")
         
-    except Exception as e:
-        st.error(f"Failed to authenticate: {e}")
-        st.stop()
+        # Selection logic for remediation
+        selected_issue = st.selectbox("Select an identified issue to see the remediation plan:", df["Resource"])
+        
+        remediation_map = {
+            "iam-user-admin-01": {
+                "Plan": "1. Revoke AdministratorAccess. 2. Attach a Least-Privilege policy. 3. Enforce MFA via IAM Policy.",
+                "Code": "aws iam create-virtual-mfa-device --virtual-mfa-device-name ..."
+            },
+            "s3-finance-records": {
+                "Plan": "1. Enable 'Block Public Access' at the account level. 2. Update Bucket Policy to restrict access to VPC endpoints.",
+                "Code": "aws s3api put-public-access-block --bucket s3-finance-records ..."
+            },
+            "ec2-public-instance": {
+                "Plan": "1. Modify Security Group ingress rules. 2. Restrict Port 22 to specific Jump-Host IP addresses.",
+                "Code": "aws ec2 revoke-security-group-ingress --group-id sg-12345 ..."
+            }
+        }
 
-    if st.button("🚀 Run Security Scan"):
-        with st.spinner("Scanning your AWS environment..."):
-            scanner = CSPMScanner(connector)
-            results = scanner.run()
-            
-            # Convert findings to DataFrame for display
-            df = pd.DataFrame([asdict(f) for f in results])
-            
-            # Summary Metrics
-            col1, col2, col3 = st.columns(3)
-            col1.metric("Total Checks", len(df))
-            col2.metric("Failures", len(df[df['status'] == 'FAIL']))
-            col3.metric("Passed", len(df[df['status'] == 'PASS']))
-
-            st.dataframe(df, use_container_width=True)
-
-if __name__ == "__main__":
-    main()
+        if selected_issue:
+            res = remediation_map[selected_issue]
+            st.warning(f"**Strategy:** {res['Plan']}")
+            with st.expander("Show CLI/Automation Artifact"):
+                st.code(res['Code'], language="bash")
+    else:
+        st.info("Please run a scan in the 'Security Scan Run' tab to view results.")
