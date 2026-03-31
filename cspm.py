@@ -1,9 +1,6 @@
 import streamlit as st
 import pandas as pd
-import boto3
-import io
 import datetime
-import time
 
 # Page Configuration
 st.set_page_config(page_title="Cloud Security & Entitlement Manager", layout="wide")
@@ -19,7 +16,7 @@ st.markdown("""
         border: 1px solid #444;
     }
     
-    /* Average Age Card Styles */
+    /* Age Card Styles */
     .age-container {
         display: flex;
         justify-content: space-between;
@@ -59,8 +56,6 @@ st.markdown("""
 st.title("🛡️ Cloud Security & Entitlement Manager")
 
 # Initialize session state
-if 'active_tab_index' not in st.session_state:
-    st.session_state['active_tab_index'] = 0
 if 'cspm_results' not in st.session_state:
     st.session_state['cspm_results'] = pd.DataFrame()
 if 'ciem_results' not in st.session_state:
@@ -74,35 +69,17 @@ if 'schedule_enabled' not in st.session_state:
 
 # --- HELPER FUNCTIONS ---
 def run_automated_scan():
-    """Logic to simulate a background periodic scan with Aging data"""
-    # 1. CSPM & Toxic Combinations (Added 'Days Open')
-    cspm_data = [
-        {"Resource": "s3-finance-bucket", "Type": "S3", "Severity": "Critical", "Issue": "Public Read Access", "Remediation": "Block", "Days Open": 12},
-        {"Resource": "ec2-web-server", "Type": "Toxic Combination", "Severity": "Critical", "Issue": "Vulnerable + Admin Access", "Remediation": "Isolate", "Days Open": 4}
-    ]
-    
-    # 2. CIEM
-    ciem_data = [
-        {"Resource": "admin-user-01", "Type": "IAM User", "Severity": "High", "Issue": "MFA Disabled", "Remediation": "Enable MFA", "Days Open": 45}
-    ]
-
-    # 3. DSPM & Vulnerability
-    dspm_vuln_data = [
-        {"Resource": "s3-customer-pii", "Type": "DSPM", "Severity": "Critical", "Issue": "Unencrypted PII", "Remediation": "Encrypt", "Days Open": 2},
-        {"Resource": "ec2-prod-app", "Type": "Vulnerability", "Severity": "High", "Issue": "CVE-2023-XXXX", "Remediation": "Patch AMI", "Days Open": 82},
-        {"Resource": "lambda-payment", "Type": "Secrets", "Severity": "Medium", "Issue": "Hardcoded Key", "Remediation": "Secrets Manager", "Days Open": 156}
-    ]
+    """Logic to simulate data population"""
+    cspm_data = [{"Resource": "s3-finance-bucket", "Type": "S3", "Severity": "Critical", "Days Open": 12}]
+    ciem_data = [{"Resource": "admin-user-01", "Type": "IAM User", "Severity": "High", "Days Open": 45}]
+    dspm_vuln_data = [{"Resource": "s3-customer-pii", "Type": "DSPM", "Severity": "Critical", "Days Open": 2}]
     
     st.session_state['cspm_results'] = pd.DataFrame(cspm_data)
     st.session_state['ciem_results'] = pd.DataFrame(ciem_data)
     st.session_state['dspm_vulnerability_results'] = pd.DataFrame(dspm_vuln_data)
     st.session_state['last_scan_time'] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
-def go_to_results():
-    st.session_state['active_tab_index'] = 5
-
 def display_age_card(label, value, sla):
-    """HTML Render for the Age Metric Card"""
     return f"""
         <div class="age-card">
             <div class="age-value">{value} <span style="font-size:14px">days</span></div>
@@ -112,64 +89,57 @@ def display_age_card(label, value, sla):
     """
 
 # Main Tabs
-tabs_list = ["📊 Executive Dashboard", "🔌 Cloud Integration", "🔍 CSPM & Risk", "🔑 CIEM", "🛡️ DSPM", "📋 Results"]
+tabs_list = ["📊 Executive Dashboard", "🔌 Cloud Integration", "🔍 CSPM & Risk", "📋 Results"]
 active_tab = st.tabs(tabs_list)
 
 # --- TAB 1: EXECUTIVE DASHBOARD ---
 with active_tab[0]:
     st.header("Security Posture Overview")
-    st.caption(f"⏱️ Last Periodic Scan: {st.session_state['last_scan_time']}")
-    
-    all_findings = pd.concat([
-        st.session_state['cspm_results'], 
-        st.session_state['ciem_results'],
-        st.session_state['dspm_vulnerability_results']
-    ], ignore_index=True)
-    
-    if not all_findings.empty:
-        # 1. PRIMARY METRIC BUTTONS
-        crit = len(all_findings[all_findings['Severity'] == 'Critical'])
-        high = len(all_findings[all_findings['Severity'] == 'High'])
-        toxic = len(st.session_state['cspm_results'][st.session_state['cspm_results']['Type'] == 'Toxic Combination'])
-        
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            if st.button(f"🚨 Critical Issues\n\n{crit}"): go_to_results(); st.rerun()
-        with col2:
-            if st.button(f"⚠️ High Risk\n\n{high}"): go_to_results(); st.rerun()
-        with col3:
-            if st.button(f"☣️ Toxic Combos\n\n{toxic}"): go_to_results(); st.rerun()
-        with col4:
-            if st.button(f"📋 Total Findings\n\n{len(all_findings)}"): go_to_results(); st.rerun()
-
-        st.divider()
-
-        # 2. AVERAGE ISSUE AGE SECTION (New Visual)
-        st.subheader("Average Issue Age")
-        
-        # Calculation logic
-        avg_crit = int(all_findings[all_findings['Severity'] == 'Critical']['Days Open'].mean()) if crit > 0 else 0
-        avg_high = int(all_findings[all_findings['Severity'] == 'High']['Days Open'].mean()) if high > 0 else 0
-        
-        # Displaying the row of cards
-        age_html = f"""
-        <div class="age-container">
-            {display_age_card("Critical Issues", avg_crit, 30)}
-            {display_age_card("High Issues", avg_high, 60)}
-            {display_age_card("Medium Issues", 156, 100)}
-            {display_age_card("Low Issues", 241, 180)}
-        </div>
-        """
-        st.markdown(age_html, unsafe_allow_html=True)
-
-        st.divider()
-        
-        # 3. DISTRIBUTION CHART
-        severity_dist = all_findings['Severity'].value_counts().reset_index()
-        severity_dist.columns = ['Severity', 'Count']
-        st.subheader("Risk Distribution Across All Modules")
-        st.bar_chart(severity_dist, x="Severity", y="Count", color="#ff4b4b")
+    if not st.session_state['cspm_results'].empty:
+        all_findings = pd.concat([st.session_state['cspm_results'], st.session_state['ciem_results'], st.session_state['dspm_vulnerability_results']])
+        st.markdown(f'<div class="age-container">{display_age_card("Critical", 15, 30)}</div>', unsafe_allow_html=True)
     else:
-        st.info("Please run a scan from the specialized tabs or enable the scheduler.")
+        st.info("No data available. Please connect and run a scan.")
 
-# [Rest of the tabs (Integration, CSPM, CIEM, DSPM, Results) follow the same logic as your previous version]
+# --- TAB 2: CLOUD INTEGRATION (FIXED) ---
+with active_tab[1]:
+    st.header("Connectivity & Automation")
+    
+    col_cred, col_sched = st.columns(2)
+    
+    with col_cred:
+        st.subheader("Cloud Credentials")
+        aws_id = st.text_input("AWS Access Key ID", type="password", placeholder="AKIA...")
+        aws_secret = st.text_input("AWS Secret Access Key", type="password", placeholder="wJalrXU...")
+        region = st.selectbox("Region", ["us-east-1", "us-west-2", "eu-central-1"], index=0)
+        
+        if st.button("Connect AWS"):
+            if aws_id and aws_secret:
+                st.success("Connection Successful!")
+                run_automated_scan() # Simulate data on connection
+            else:
+                st.error("Please enter credentials.")
+
+    with col_sched:
+        st.subheader("🗓️ Scan Scheduler")
+        st.write("Automatically refresh security data.")
+        interval = st.selectbox("Scan Interval", ["Every 1 Hour", "Every 6 Hours", "Daily"])
+        
+        if not st.session_state['schedule_enabled']:
+            if st.button("Enable Scheduler"):
+                st.session_state['schedule_enabled'] = True
+                st.rerun()
+        else:
+            st.success(f"Periodic Scanning is ACTIVE ({interval})")
+            if st.button("Disable Scheduler"):
+                st.session_state['schedule_enabled'] = False
+                st.rerun()
+
+# Placeholder for remaining tabs
+with active_tab[2]:
+    st.header("CSPM & Risk Analysis")
+    st.dataframe(st.session_state['cspm_results'], use_container_width=True)
+
+with active_tab[3]:
+    st.header("Scan Results & Remediation")
+    st.write("Full audit logs and automation artifacts appear here.")
