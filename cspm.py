@@ -118,23 +118,18 @@ def main():
     st.set_page_config(page_title="Advanced CSPM & CIEM", page_icon="🛡️", layout="wide")
     st.title("🛡️ Cloud Security & Entitlement Manager")
 
-    # FIXED: Accessing secrets by key NAME, not the value itself
+    # Accessing secrets by the variable NAME defined in your .toml
     if "aws" in st.secrets:
         try:
-            aws_access = st.secrets["aws"]["AKIAVTDJYPX7QJHHYO3S"]
-            aws_secret = st.secrets["aws"]["2aTrBcpZrmTXEu8WTwB7EkUiV7a9oCi0HPzof5OP"]
+            aws_access = st.secrets["aws"]["aws_access_key_id"]
+            aws_secret = st.secrets["aws"]["aws_secret_access_key"]
             aws_region = st.secrets["aws"].get("aws_region", "us-east-1")
             
             connector = AWSConnector(aws_access, aws_secret, aws_region)
-            scanner = CSPMScanner(connector)
-            st.sidebar.success(f"Connected: {connector.get_account_id()}")
+            # ... rest of your code
         except KeyError as e:
-            st.error(f"Secret key missing: {e}. Check your Streamlit Secrets formatting.")
-            st.stop()
-        except Exception as e:
-            st.error(f"Connection error: {e}")
-            st.stop()
-    else:
+            st.error(f"Key missing in secrets: {e}. Ensure your secrets use 'aws_access_key_id'.")
+            st.stop()    else:
         st.error("🔑 AWS Credentials Not Found in st.secrets")
         st.stop()
 
