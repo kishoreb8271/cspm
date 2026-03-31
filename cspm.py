@@ -1,5 +1,5 @@
 import streamlit as st
-import pd
+import pandas as pd  # Fixed: Changed 'import pd' to 'import pandas as pd'
 import boto3
 import io
 import datetime
@@ -188,7 +188,7 @@ with active_tab[1]:
                 st.session_state['schedule_enabled'] = False
                 st.rerun()
 
-# --- TAB 3: COMPLIANCE & GOVERNANCE (FINAL UPDATE) ---
+# --- TAB 3: COMPLIANCE & GOVERNANCE ---
 with active_tab[2]:
     st.header("⚖️ Continuous Compliance & Governance")
     
