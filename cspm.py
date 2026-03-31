@@ -121,8 +121,8 @@ def main():
     # FIXED: Accessing secrets by key NAME, not the value itself
     if "aws" in st.secrets:
         try:
-            aws_access = st.secrets["aws"]["aws_access_key_id"]
-            aws_secret = st.secrets["aws"]["aws_secret_access_key"]
+            aws_access = st.secrets["aws"]["AKIAVTDJYPX7QJHHYO3S"]
+            aws_secret = st.secrets["aws"]["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"]
             aws_region = st.secrets["aws"].get("aws_region", "us-east-1")
             
             connector = AWSConnector(aws_access, aws_secret, aws_region)
