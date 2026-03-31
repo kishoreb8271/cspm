@@ -34,34 +34,40 @@ class Finding:
 
 # --- 2. AWS CONNECTOR ---
 class AWSConnector:
-    """Handles authentication and session management using Streamlit Secrets."""
-    def __init__(self, access_key, secret_key, region):
+    """Handles authentication and session management."""
+    def __init__(self, access_key=None, secret_key=None, region="us-east-1"):
         self.region = region
         try:
-            # Initialize session using keys provided from secrets
-            self.session = boto3.Session(
-                aws_access_key_id=access_key,
-                aws_secret_access_key=secret_key,
-                region_name=region
-            )
+            if access_key and secret_key:
+                # Prioritize explicit keys (from Streamlit Secrets)
+                self.session = boto3.Session(
+                    aws_access_key_id=access_key,
+                    aws_secret_access_key=secret_key,
+                    region_name=region
+                )
+            else:
+                # Fallback to default environment/IAM role
+                self.session = boto3.Session(region_name=region)
+            
             self.sts = self.session.client("sts")
         except Exception as e:
-            raise Exception(f"AWS Session failed: {e}")
+            raise Exception(f"Session initialization failed: {e}")
 
     def get_account_id(self) -> str:
         return self.sts.get_caller_identity()["Account"]
 
-# --- 3. SCANNER LOGIC ---
+# --- 3. SCANNER LOGIC (STUB) ---
+# Note: Keep your existing CSPMScanner class logic here
 class CSPMScanner:
     def __init__(self, connector: AWSConnector):
         self.connector = connector
         self.findings: List[Finding] = []
 
     def run(self) -> List[Finding]:
-        # Placeholder for your specific check logic (IAM, S3, etc.)
+        # Place your specific check logic (IAM, S3, etc.) here
+        # For demonstration, returning a dummy finding:
         self.findings.append(Finding(
-            "S3_001", "Public S3 Buckets", Severity.HIGH, Status.PASS, 
-            "N/A", "Scanning logic active", self.connector.region
+            "S3_001", "Public S3 Buckets", Severity.HIGH, Status.PASS, "N/A", "Scanning logic placeholder", self.connector.region
         ))
         return self.findings
 
@@ -71,26 +77,11 @@ def main():
     st.title("☁️ Cloud Security Posture Management")
     st.markdown("---")
 
-    # Attempt to load credentials from Streamlit Secrets manager
-    if "aws" in st.secrets:
-        aws_access = st.secrets["aws"]["aws_access_key_id"]
-        aws_secret = st.secrets["aws"]["aws_secret_access_key"]
-        aws_region = st.secrets["aws"].get("aws_region", "us-east-1")
-    else:
-        st.error("🔑 **AWS Credentials Not Found**")
-        st.info("""
-            Please add your credentials to the **Streamlit Secrets** manager:
-            1. Go to your App Settings on the Streamlit Cloud Dashboard.
-            2. Open the **Secrets** tab.
-            3. Paste the following:
-            ```toml
-            [aws]
-            aws_access_key_id = "YOUR_ACCESS_KEY"
-            aws_secret_access_key = "YOUR_SECRET_KEY"
-            aws_region = "us-east-1"
-            ```
-        """)
-        st.stop()
+    # 1. Setup Credentials from Secrets
+    # In Streamlit Cloud, add these to the 'Secrets' dashboard
+    aws_access = st.secrets.get("aws_access_key_id", "AKIAVTDJYPX7QJHHYO3S") # Fallback for your testing
+    aws_secret = st.secrets.get("aws_secret_access_key", "2aTrBcpZrmTXEu8WTwB7EkUiV7a9oCi0HPzof5OP")
+    aws_region = st.secrets.get("aws_region", "us-east-1")
 
     try:
         connector = AWSConnector(aws_access, aws_secret, aws_region)
@@ -100,16 +91,18 @@ def main():
         st.sidebar.info(f"Region: {aws_region}")
         
     except Exception as e:
-        st.error(f"Authentication Error: {e}")
+        st.error(f"Failed to authenticate: {e}")
         st.stop()
 
     if st.button("🚀 Run Security Scan"):
-        with st.spinner("Scanning AWS environment..."):
+        with st.spinner("Scanning your AWS environment..."):
             scanner = CSPMScanner(connector)
             results = scanner.run()
             
+            # Convert findings to DataFrame for display
             df = pd.DataFrame([asdict(f) for f in results])
             
+            # Summary Metrics
             col1, col2, col3 = st.columns(3)
             col1.metric("Total Checks", len(df))
             col2.metric("Failures", len(df[df['status'] == 'FAIL']))
