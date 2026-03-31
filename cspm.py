@@ -126,8 +126,8 @@ def main():
 
     # Credential Handling (Keep your existing secrets logic)
     if "aws" in st.secrets:
-        aws_access = st.secrets["aws"]["aws_access_key_id"]
-        aws_secret = st.secrets["aws"]["aws_secret_access_key"]
+        aws_access = st.secrets["aws"]["AKIAVTDJYPX7QJHHYO3S"]
+        aws_secret = st.secrets["aws"]["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"]
         aws_region = st.secrets["aws"].get("aws_region", "us-east-1")
     else:
         st.error("🔑 AWS Credentials Not Found")
