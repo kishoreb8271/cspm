@@ -1,5 +1,5 @@
 import streamlit as st
-import pandas as pd
+import pd
 import boto3
 import io
 import datetime
@@ -25,9 +25,13 @@ st.markdown("""
         border-radius: 10px;
         border: 1px solid #333;
     }
-    /* Progress bar colors */
+    /* Progress bar colors - custom styling to match compliance UI */
     .stProgress > div > div > div > div {
         background-color: #28a745;
+    }
+    .compliance-text {
+        font-size: 14px;
+        font-weight: 500;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -81,11 +85,11 @@ def run_automated_scan(module_name="Full System"):
             {"Resource": "customer_list.csv", "Type": "DSPM", "Severity": "Critical", "Issue": "Unencrypted PII (SSN)", "Data_Type": "PII"}
         ]
         
-        # DYNAMIC COMPLIANCE STRUCTURE
+        # DYNAMIC COMPLIANCE STRUCTURE - Updated with counts
         comp_data = [
             {
                 "Framework": "CIS AWS Foundations v4.0.0",
-                "Total_OK": 2277, "Total_Alarm": 781,
+                "Total_OK": 2277, "Total_Alarm": 781, "Total_Error": 0, "Total_Skip": 5,
                 "Sections": [
                     {"ID": "1", "Name": "Identity and Access Management", "Passed": 1239, "Failed": 128},
                     {"ID": "2", "Name": "Storage", "Passed": 179, "Failed": 226, "Sub": [
@@ -99,7 +103,7 @@ def run_automated_scan(module_name="Full System"):
             },
             {
                 "Framework": "PCI-DSS v4.0",
-                "Total_OK": 112, "Total_Alarm": 12,
+                "Total_OK": 112, "Total_Alarm": 12, "Total_Error": 0, "Total_Skip": 0,
                 "Sections": [
                     {"ID": "Req 1", "Name": "Network Security Controls", "Passed": 40, "Failed": 2},
                     {"ID": "Req 3", "Name": "Protect Stored Cardholder Data", "Passed": 72, "Failed": 10}
@@ -184,45 +188,52 @@ with active_tab[1]:
                 st.session_state['schedule_enabled'] = False
                 st.rerun()
 
-# --- TAB 3: COMPLIANCE (UPDATED DYNAMIC MODULE) ---
+# --- TAB 3: COMPLIANCE & GOVERNANCE (FINAL UPDATE) ---
 with active_tab[2]:
     st.header("⚖️ Continuous Compliance & Governance")
     
     if st.session_state['compliance_results']:
         for fw in st.session_state['compliance_results']:
-            # Framework Header with Summary Metrics
+            # Framework Header - Clickable Expander
             with st.expander(f"📌 {fw['Framework']}", expanded=True):
-                # Summary tiles like the snippet
+                # Summary Metric Tiles
                 s1, s2, s3, s4 = st.columns(4)
-                s1.metric("OK", fw['Total_OK'])
-                s2.metric("Alarm", fw['Total_Alarm'], delta_color="inverse")
-                s3.metric("Error", 0)
-                s4.metric("Skipped", 0)
+                s1.metric("OK", fw.get('Total_OK', 0))
+                s2.metric("Alarm", fw.get('Total_Alarm', 0), delta_color="inverse")
+                s3.metric("Error", fw.get('Total_Error', 0))
+                s4.metric("Skipped", fw.get('Total_Skip', 0))
                 
-                st.markdown("---")
+                st.markdown("<br>", unsafe_allow_html=True)
                 
+                # Table Header Labels
+                h1, h2, h3 = st.columns([4, 2, 3])
+                h1.caption("FRAMEWORK SECTION")
+                h2.caption("SCAN COUNT (ALARM | OK)")
+                h3.caption("COMPLIANCE STATUS")
+
                 # Render Sections
                 for sec in fw['Sections']:
                     total = sec['Passed'] + sec['Failed']
                     prog_val = sec['Passed'] / total if total > 0 else 0
                     
-                    # Main Row
-                    c1, c2, c3 = st.columns([4, 1, 3])
-                    c1.markdown(f"**{sec['ID']} {sec['Name']}**")
-                    c2.write(f"🔴 {sec['Failed']} | 🟢 {sec['Passed']}")
+                    # Section Row
+                    c1, c2, c3 = st.columns([4, 2, 3])
+                    c1.markdown(f"<span class='compliance-text'>{sec['ID']} {sec['Name']}</span>", unsafe_allow_html=True)
+                    # Color coded scan counts
+                    c2.markdown(f"**🔴 {sec['Failed']}** | **🟢 {sec['Passed']}**")
                     c3.progress(prog_val)
                     
-                    # Nested Sub-sections if they exist
+                    # Handle Sub-sections
                     if 'Sub' in sec:
                         for sub in sec['Sub']:
                             sub_total = sub['Passed'] + sub['Failed']
                             sub_prog = sub['Passed'] / sub_total if sub_total > 0 else 0
                             
-                            sc1, sc2, sc3, sc4 = st.columns([0.5, 3.5, 1, 3])
+                            sc1, sc2, sc3, sc4 = st.columns([0.5, 3.5, 2, 3])
                             sc2.caption(f"{sub['ID']} {sub['Name']}")
                             sc3.caption(f"🔴 {sub['Failed']} | 🟢 {sub['Passed']}")
                             sc4.progress(sub_prog)
-                    st.write("") # Padding
+                    st.divider()
     else:
         st.info("Assessment pending scan. Run a scan to see compliance details.")
 
