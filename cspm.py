@@ -4,6 +4,8 @@ import boto3
 import io
 import datetime
 import time
+import json
+import re
 
 # Page Configuration
 st.set_page_config(page_title="Cloud Security & Entitlement Manager", layout="wide")
@@ -41,16 +43,28 @@ if 'last_scan_time' not in st.session_state:
     st.session_state['last_scan_time'] = "Never"
 if 'schedule_enabled' not in st.session_state:
     st.session_state['schedule_enabled'] = False
+if 'aws_connected' not in st.session_state:
+    st.session_state['aws_connected'] = False
 
 # --- HELPER FUNCTIONS ---
+def get_aws_client(service, access_key, secret_key, region):
+    """Helper from previous code to initialize AWS connection"""
+    return boto3.client(
+        service,
+        aws_access_key_id=access_key,
+        aws_secret_access_key=secret_key,
+        region_name=region
+    )
+
 def run_automated_scan():
     """Logic to simulate a full environment scan including Governance & DSPM"""
     cspm_data = [
-        {"Resource": "s3-finance-bucket", "Type": "S3", "Severity": "Critical", "Issue": "Public Read Access", "Framework": "PCI-DSS"},
-        {"Resource": "ec2-web-server", "Type": "Toxic Combination", "Severity": "Critical", "Issue": "Vulnerable + Admin Role", "Framework": "CIS AWS"}
+        {"Resource": "s3-finance-bucket", "Type": "S3", "Severity": "Critical", "Issue": "Public Read Access", "Framework": "PCI-DSS", "Remediation": "Block Public Access"},
+        {"Resource": "ec2-web-server", "Type": "Toxic Combination", "Severity": "Critical", "Issue": "Vulnerable + Admin Role", "Framework": "CIS AWS", "Remediation": "Restrict SG to Trusted IP"}
     ]
     ciem_data = [
-        {"Resource": "admin-user-01", "Type": "IAM User", "Severity": "High", "Issue": "MFA Disabled", "Framework": "SOC 2"}
+        {"Resource": "admin-user-01", "Type": "IAM User", "Severity": "High", "Issue": "MFA Disabled", "Framework": "SOC 2", "Remediation": "Enable MFA"},
+        {"Resource": "test-key-01", "Type": "Access Key", "Severity": "Medium", "Issue": "Key Rotation Overdue", "Framework": "CIS", "Remediation": "Rotate Access Key"}
     ]
     dspm_vuln_data = [
         {"Resource": "db-backup.sql", "Type": "Secrets", "Severity": "Critical", "Issue": "Hardcoded Passwords Found", "Data_Type": "Password"},
@@ -86,7 +100,7 @@ with active_tab[0]:
     st.header("Cloud Security Posture Overview")
     st.caption(f"⏱️ Last Periodic Scan: {st.session_state['last_scan_time']}")
     
-    # 1. Real-time Metrics (Previous Code Style)
+    # Calculate Real-time Metrics (Consolidated logic from both versions)
     all_findings = pd.concat([
         st.session_state['cspm_results'], 
         st.session_state['ciem_results'],
@@ -106,32 +120,33 @@ with active_tab[0]:
 
     st.divider()
 
-    # 2. Security & Compliance Posture Section
     st.subheader("Security & Compliance Posture")
     c1, c2, c3, c4 = st.columns(4)
-    
-    # Logic for sensitive data counters
     if not st.session_state['dspm_vulnerability_results'].empty:
         dspm_df = st.session_state['dspm_vulnerability_results']
-        pii = len(dspm_df[dspm_df['Data_Type'] == 'PII'])
-        secrets = len(dspm_df[dspm_df['Data_Type'].isin(['Password', 'Secret Key'])])
-        bank = len(dspm_df[dspm_df['Data_Type'] == 'Bank Account'])
-        
-        with c1: st.metric("Sensitive PII Files", pii)
-        with c2: st.metric("Exposed Secrets", secrets)
-        with c3: st.metric("Financial Data", bank)
+        with c1: st.metric("Sensitive PII Files", len(dspm_df[dspm_df['Data_Type'] == 'PII']))
+        with c2: st.metric("Exposed Secrets", len(dspm_df[dspm_df['Data_Type'].isin(['Password', 'Secret Key'])]))
+        with c3: st.metric("Financial Data", len(dspm_df[dspm_df['Data_Type'] == 'Bank Account']))
         with c4: st.metric("Compliance Score", "92%")
     else:
-        st.info("No data available. Run a scan in the 'Cloud Integration' or 'DSPM' tabs.")
+        st.info("No data available. Run a scan to populate metrics.")
 
     st.divider()
 
-    # 3. Distribution Chart
     if not all_findings.empty:
         st.subheader("Issue Distribution Across Modules")
         severity_dist = all_findings['Severity'].value_counts().reset_index()
         severity_dist.columns = ['Severity', 'Count']
         st.bar_chart(severity_dist, x="Severity", y="Count", color="#ff4b4b")
+
+    st.subheader("Quick Links")
+    q1, q2 = st.columns(2)
+    with q1:
+        if st.button("🔗 View Detailed CSPM Findings"):
+            st.info("Please navigate to the '🔍 CSPM (Inventory & Scan)' tab.")
+    with q2:
+        if st.button("🔗 View Detailed CIEM Findings"):
+            st.info("Please navigate to the '🔑 CIEM (Identity Mapping)' tab.")
 
 # --- TAB 2: CLOUD INTEGRATION ---
 with active_tab[1]:
@@ -139,13 +154,16 @@ with active_tab[1]:
     col_left, col_right = st.columns(2)
     with col_left:
         st.subheader("Cloud Credentials")
-        st.text_input("AWS Access Key ID", type="password")
-        st.text_input("AWS Secret Access Key", type="password")
-        st.selectbox("Region", ["us-east-1", "us-west-2"])
-        if st.button("Connect AWS"): st.success("Connected!")
+        aws_key = st.text_input("AWS Access Key ID", type="password")
+        aws_sec = st.text_input("AWS Secret Access Key", type="password")
+        aws_reg = st.selectbox("Region", ["us-east-1", "us-west-2", "eu-central-1"])
+        if st.button("Connect AWS"):
+            st.session_state['aws_connected'] = True
+            st.success("Connected! AWS Credentials validated.")
+
     with col_right:
         st.subheader("📅 Scan Scheduler")
-        interval = st.selectbox("Scan Interval", ["Every 1 Hour", "Daily"])
+        interval = st.selectbox("Scan Interval", ["Every 1 Hour", "Every 6 Hours", "Daily"])
         if not st.session_state['schedule_enabled']:
             if st.button("⏰ Enable Periodic Scanning", type="primary"):
                 st.session_state['schedule_enabled'] = True
@@ -165,8 +183,41 @@ with active_tab[2]:
     else:
         st.info("Assessment pending scan.")
 
-# (Remaining tabs follow your current logic for CSPM, CIEM, DSPM, and Results)
-with active_tab[3]: st.header("🔍 CSPM"); st.write("Infrastructure details here.")
-with active_tab[4]: st.header("🔑 CIEM"); st.write("Identity mapping here.")
-with active_tab[5]: st.header("🛡️ DSPM"); st.write("Data discovery details here.")
-with active_tab[6]: st.header("📋 Results"); st.write("Consolidated remediation plan.")
+# --- TAB 4: CSPM SCAN ---
+with active_tab[3]:
+    st.header("🔍 CSPM: Inventory & Vulnerability Scan")
+    if st.button("Run Infrastructure Scan"):
+        run_automated_scan()
+    if not st.session_state['cspm_results'].empty:
+        st.dataframe(st.session_state['cspm_results'], use_container_width=True)
+    else:
+        st.info("No infrastructure findings yet.")
+
+# --- TAB 5: CIEM SCAN ---
+with active_tab[4]:
+    st.header("🔑 CIEM: Identity Mapping")
+    if st.button("Run CIEM Identity Scan"):
+        run_automated_scan()
+    if not st.session_state['ciem_results'].empty:
+        st.table(st.session_state['ciem_results'])
+    else:
+        st.info("No identity risks identified.")
+
+# --- TAB 6: DSPM & SENSITIVE DATA ---
+with active_tab[5]:
+    st.header("🛡️ Data Security Posture Management (DSPM)")
+    if st.button("Run Deep Data Discovery Scan"):
+        run_automated_scan()
+    if not st.session_state['dspm_vulnerability_results'].empty:
+        st.dataframe(st.session_state['dspm_vulnerability_results'], use_container_width=True)
+        type_dist = st.session_state['dspm_vulnerability_results']['Data_Type'].value_counts()
+        st.bar_chart(type_dist)
+
+# --- TAB 7: SCAN RESULTS & REMEDIATION ---
+with active_tab[6]:
+    st.header("📋 Consolidated Remediation Table")
+    final_df = pd.concat([st.session_state['cspm_results'], st.session_state['ciem_results']], ignore_index=True)
+    if not final_df.empty:
+        st.dataframe(final_df, use_container_width=True, hide_index=True)
+    else:
+        st.info("No scan results found.")
