@@ -55,7 +55,6 @@ class CSPMScanner:
         self.findings: List[Finding] = []
 
     def discover_inventory(self):
-        """1. Agentless Visibility & Inventory: Discovering AWS Resources"""
         inventory = []
         try:
             # Discover EC2 Instances
@@ -82,17 +81,14 @@ class CSPMScanner:
         return inventory
 
     def analyze_ciem(self) -> List[dict]:
-        """4. CIEM: Identity Mapping & Permission Analysis"""
         iam = self.connector.session.client("iam")
         identities = []
         try:
             users = iam.list_users()
             for user in users.get('Users', []):
-                # Check for over-privileged (AdminAccess)
                 policies = iam.list_attached_user_policies(UserName=user['UserName'])
                 has_admin = any(p['PolicyName'] == 'AdministratorAccess' for p in policies.get('AttachedPolicies', []))
                 
-                # Check for "Zombie" (Unused) Identity (older than 90 days)
                 last_used = user.get('PasswordLastUsed')
                 status = "Active"
                 if last_used:
@@ -111,8 +107,6 @@ class CSPMScanner:
         return identities
 
     def run_security_checks(self) -> List[Finding]:
-        """Deep Stack Configuration Inspection (Snapshot-based logic simulation)"""
-        # Example check: S3 Public Access
         self.findings.append(Finding(
             "IAM_001", "Over-privileged Admin", Severity.CRITICAL, Status.FAIL, 
             "IAM-User-01", "User has broad AdministratorAccess without MFA", self.connector.region
@@ -124,19 +118,26 @@ def main():
     st.set_page_config(page_title="Advanced CSPM & CIEM", page_icon="🛡️", layout="wide")
     st.title("🛡️ Cloud Security & Entitlement Manager")
 
-    # Credential Handling (Keep your existing secrets logic)
+    # FIXED: Accessing secrets by key NAME, not the value itself
     if "aws" in st.secrets:
-        aws_access = st.secrets["aws"]["AKIAVTDJYPX7QJHHYO3S"]
-        aws_secret = st.secrets["aws"]["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"]
-        aws_region = st.secrets["aws"].get("aws_region", "us-east-1")
+        try:
+            aws_access = st.secrets["aws"]["aws_access_key_id"]
+            aws_secret = st.secrets["aws"]["aws_secret_access_key"]
+            aws_region = st.secrets["aws"].get("aws_region", "us-east-1")
+            
+            connector = AWSConnector(aws_access, aws_secret, aws_region)
+            scanner = CSPMScanner(connector)
+            st.sidebar.success(f"Connected: {connector.get_account_id()}")
+        except KeyError as e:
+            st.error(f"Secret key missing: {e}. Check your Streamlit Secrets formatting.")
+            st.stop()
+        except Exception as e:
+            st.error(f"Connection error: {e}")
+            st.stop()
     else:
-        st.error("🔑 AWS Credentials Not Found")
+        st.error("🔑 AWS Credentials Not Found in st.secrets")
         st.stop()
 
-    connector = AWSConnector(aws_access, aws_secret, aws_region)
-    scanner = CSPMScanner(connector)
-
-    # UI TABS for new requirements
     tab_inv, tab_ciem, tab_scan = st.tabs([
         "Inventory & Deep Stack", 
         "CIEM (Identity Mapping)", 
@@ -148,11 +149,9 @@ def main():
         if st.button("Refresh Inventory"):
             assets = scanner.discover_inventory()
             st.dataframe(pd.DataFrame(assets), use_container_width=True)
-            st.caption("Includes EC2, S3, Lambda, and more discovered via control-plane API.")
 
     with tab_ciem:
         st.header("Identity & Entitlement Analysis")
-        st.write("Mapping effective permissions and identifying 'Zombie' identities.")
         if st.button("Analyze Permissions"):
             identities = scanner.analyze_ciem()
             st.table(pd.DataFrame(identities))
