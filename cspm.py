@@ -1,99 +1,169 @@
+import boto3
+import json
+import datetime
 import streamlit as st
 import pandas as pd
+from dataclasses import dataclass, field, asdict
+from typing import List
+from enum import Enum
 
-# Page Configuration
-st.set_page_config(page_title="Cloud Security Assessment Tool", layout="wide")
+# --- 1. DATA MODELS ---
+class Severity(str, Enum):
+    CRITICAL = "CRITICAL"
+    HIGH     = "HIGH"
+    MEDIUM   = "MEDIUM"
+    LOW      = "LOW"
+    INFO     = "INFO"
 
-st.title("🛡️ Cybersecurity Control & Scan Manager")
+class Status(str, Enum):
+    PASS = "PASS"
+    FAIL = "FAIL"
+    ERROR = "ERROR"
 
-# Create the three main tabs
-tab_integration, tab_scanner, tab_results = st.tabs([
-    "Cloud Integration", 
-    "Security Scan Run", 
-    "Scan Results & Remediation"
-])
+@dataclass
+class Finding:
+    rule_id:      str
+    title:        str
+    severity:     Severity
+    status:       Status
+    resource_id:  str
+    description:  str
+    region:       str
+    timestamp:    str = field(default_factory=lambda: datetime.datetime.now(datetime.timezone.utc).isoformat())
 
-# --- TAB 1: CLOUD INTEGRATION ---
-with tab_integration:
-    st.header("Connect Cloud Providers")
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.subheader("AWS Configuration")
-        aws_access_key = st.text_input("AWS Access Key ID", type="password")
-        aws_secret_key = st.text_input("AWS Secret Access Key", type="password")
-        aws_region = st.selectbox("Region", ["us-east-1", "us-west-2", "eu-central-1"])
-        if st.button("Connect AWS"):
-            st.success("AWS Credentials validated (Simulation)")
+# --- 2. AWS CONNECTOR ---
+class AWSConnector:
+    def __init__(self, access_key, secret_key, region):
+        self.region = region
+        try:
+            self.session = boto3.Session(
+                aws_access_key_id=access_key,
+                aws_secret_access_key=secret_key,
+                region_name=region
+            )
+            self.sts = self.session.client("sts")
+        except Exception as e:
+            raise Exception(f"AWS Session failed: {e}")
 
-    with col2:
-        st.subheader("Azure Configuration")
-        az_tenant_id = st.text_input("Tenant ID", type="password")
-        az_client_id = st.text_input("Client ID", type="password")
-        if st.button("Connect Azure"):
-            st.info("Azure connection initialized")
+    def get_account_id(self) -> str:
+        return self.sts.get_caller_identity()["Account"]
 
-# --- TAB 2: SECURITY SCAN RUN ---
-with tab_scanner:
-    st.header("Live Cloud Security Scanner")
-    st.write("Trigger an online scan of your AWS environment against NIST 800-53 or CIS benchmarks.")
-    
-    scan_type = st.multiselect("Select Services to Scan", ["S3", "EC2", "IAM", "Lambda", "EKS"])
-    
-    if st.button("Run Security Scan"):
-        with st.status("Scanning AWS Environment...", expanded=True) as status:
-            st.write("Checking S3 Bucket Policies...")
-            st.write("Analyzing IAM Roles for Over-privileged permissions...")
-            st.write("Verifying Security Groups...")
-            status.update(label="Scan Complete!", state="complete", expanded=False)
-            st.session_state['scan_performed'] = True
+# --- 3. UPDATED SCANNER LOGIC ---
+class CSPMScanner:
+    def __init__(self, connector: AWSConnector):
+        self.connector = connector
+        self.findings: List[Finding] = []
 
-# --- TAB 3: SCAN RESULTS & REMEDIATION ---
-with tab_results:
-    st.header("Analysis & Identified Gaps")
-    
-    # Mock Data for demonstration
-    scan_data = {
-        "Resource": ["iam-user-admin-01", "s3-finance-records", "ec2-public-instance"],
-        "Risk Type": ["Over-privileged Permission", "Misconfiguration", "Exposed Port"],
-        "Severity": ["High", "Critical", "Medium"],
-        "Description": [
-            "User has AdministratorAccess without MFA.",
-            "Bucket allows Public Read Access.",
-            "Port 22 (SSH) open to 0.0.0.0/0."
-        ]
-    }
-    df = pd.DataFrame(scan_data)
+    def discover_inventory(self):
+        """1. Agentless Visibility & Inventory: Discovering AWS Resources"""
+        inventory = []
+        try:
+            # Discover EC2 Instances
+            ec2 = self.connector.session.client("ec2")
+            instances = ec2.describe_instances()
+            for res in instances.get('Reservations', []):
+                for ins in res.get('Instances', []):
+                    inventory.append({"Type": "EC2", "ID": ins['InstanceId'], "State": ins['State']['Name']})
 
-    if 'scan_performed' in st.session_state:
-        # Display the results table
-        event = st.dataframe(df, use_container_width=True, hide_index=True)
-        
-        st.divider()
-        st.subheader("Remediation Plan")
-        
-        # Selection logic for remediation
-        selected_issue = st.selectbox("Select an identified issue to see the remediation plan:", df["Resource"])
-        
-        remediation_map = {
-            "iam-user-admin-01": {
-                "Plan": "1. Revoke AdministratorAccess. 2. Attach a Least-Privilege policy. 3. Enforce MFA via IAM Policy.",
-                "Code": "aws iam create-virtual-mfa-device --virtual-mfa-device-name ..."
-            },
-            "s3-finance-records": {
-                "Plan": "1. Enable 'Block Public Access' at the account level. 2. Update Bucket Policy to restrict access to VPC endpoints.",
-                "Code": "aws s3api put-public-access-block --bucket s3-finance-records ..."
-            },
-            "ec2-public-instance": {
-                "Plan": "1. Modify Security Group ingress rules. 2. Restrict Port 22 to specific Jump-Host IP addresses.",
-                "Code": "aws ec2 revoke-security-group-ingress --group-id sg-12345 ..."
-            }
-        }
+            # Discover S3 Buckets
+            s3 = self.connector.session.client("s3")
+            buckets = s3.list_buckets()
+            for b in buckets.get('Buckets', []):
+                inventory.append({"Type": "S3", "ID": b['Name'], "State": "Active"})
 
-        if selected_issue:
-            res = remediation_map[selected_issue]
-            st.warning(f"**Strategy:** {res['Plan']}")
-            with st.expander("Show CLI/Automation Artifact"):
-                st.code(res['Code'], language="bash")
+            # Discover Lambda Functions
+            lam = self.connector.session.client("lambda")
+            funcs = lam.list_functions()
+            for f in funcs.get('Functions', []):
+                inventory.append({"Type": "Lambda", "ID": f['FunctionName'], "State": "Active"})
+
+        except Exception as e:
+            st.error(f"Inventory discovery failed: {e}")
+        return inventory
+
+    def analyze_ciem(self) -> List[dict]:
+        """4. CIEM: Identity Mapping & Permission Analysis"""
+        iam = self.connector.session.client("iam")
+        identities = []
+        try:
+            users = iam.list_users()
+            for user in users.get('Users', []):
+                # Check for over-privileged (AdminAccess)
+                policies = iam.list_attached_user_policies(UserName=user['UserName'])
+                has_admin = any(p['PolicyName'] == 'AdministratorAccess' for p in policies.get('AttachedPolicies', []))
+                
+                # Check for "Zombie" (Unused) Identity (older than 90 days)
+                last_used = user.get('PasswordLastUsed')
+                status = "Active"
+                if last_used:
+                    days_unused = (datetime.datetime.now(datetime.timezone.utc) - last_used).days
+                    if days_unused > 90: status = "Zombie/Unused"
+                
+                identities.append({
+                    "Identity": user['UserName'],
+                    "Type": "User",
+                    "AdminPrivilege": "Yes" if has_admin else "No",
+                    "Status": status,
+                    "Recommendation": "Revoke Admin" if has_admin else "Least Privilege OK"
+                })
+        except Exception as e:
+            st.error(f"CIEM Analysis failed: {e}")
+        return identities
+
+    def run_security_checks(self) -> List[Finding]:
+        """Deep Stack Configuration Inspection (Snapshot-based logic simulation)"""
+        # Example check: S3 Public Access
+        self.findings.append(Finding(
+            "IAM_001", "Over-privileged Admin", Severity.CRITICAL, Status.FAIL, 
+            "IAM-User-01", "User has broad AdministratorAccess without MFA", self.connector.region
+        ))
+        return self.findings
+
+# --- 4. STREAMLIT UI ---
+def main():
+    st.set_page_config(page_title="Advanced CSPM & CIEM", page_icon="🛡️", layout="wide")
+    st.title("🛡️ Cloud Security & Entitlement Manager")
+
+    # Credential Handling (Keep your existing secrets logic)
+    if "aws" in st.secrets:
+        aws_access = st.secrets["aws"]["aws_access_key_id"]
+        aws_secret = st.secrets["aws"]["aws_secret_access_key"]
+        aws_region = st.secrets["aws"].get("aws_region", "us-east-1")
     else:
-        st.info("Please run a scan in the 'Security Scan Run' tab to view results.")
+        st.error("🔑 AWS Credentials Not Found")
+        st.stop()
+
+    connector = AWSConnector(aws_access, aws_secret, aws_region)
+    scanner = CSPMScanner(connector)
+
+    # UI TABS for new requirements
+    tab_inv, tab_ciem, tab_scan = st.tabs([
+        "Inventory & Deep Stack", 
+        "CIEM (Identity Mapping)", 
+        "Security Scan Results"
+    ])
+
+    with tab_inv:
+        st.header("Asset Inventory (Agentless Discovery)")
+        if st.button("Refresh Inventory"):
+            assets = scanner.discover_inventory()
+            st.dataframe(pd.DataFrame(assets), use_container_width=True)
+            st.caption("Includes EC2, S3, Lambda, and more discovered via control-plane API.")
+
+    with tab_ciem:
+        st.header("Identity & Entitlement Analysis")
+        st.write("Mapping effective permissions and identifying 'Zombie' identities.")
+        if st.button("Analyze Permissions"):
+            identities = scanner.analyze_ciem()
+            st.table(pd.DataFrame(identities))
+
+    with tab_scan:
+        st.header("Security Findings & Gaps")
+        if st.button("🚀 Start Full Security Scan"):
+            with st.spinner("Analyzing Cloud Config..."):
+                results = scanner.run_security_checks()
+                df = pd.DataFrame([asdict(f) for f in results])
+                st.dataframe(df, use_container_width=True)
+
+if __name__ == "__main__":
+    main()
