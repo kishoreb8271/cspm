@@ -56,32 +56,43 @@ def get_aws_client(service, access_key, secret_key, region):
         region_name=region
     )
 
-def run_automated_scan():
-    """Logic to simulate a full environment scan including Governance & DSPM"""
-    cspm_data = [
-        {"Resource": "s3-finance-bucket", "Type": "S3", "Severity": "Critical", "Issue": "Public Read Access", "Framework": "PCI-DSS", "Remediation": "Block Public Access"},
-        {"Resource": "ec2-web-server", "Type": "Toxic Combination", "Severity": "Critical", "Issue": "Vulnerable + Admin Role", "Framework": "CIS AWS", "Remediation": "Restrict SG to Trusted IP"}
-    ]
-    ciem_data = [
-        {"Resource": "admin-user-01", "Type": "IAM User", "Severity": "High", "Issue": "MFA Disabled", "Framework": "SOC 2", "Remediation": "Enable MFA"},
-        {"Resource": "test-key-01", "Type": "Access Key", "Severity": "Medium", "Issue": "Key Rotation Overdue", "Framework": "CIS", "Remediation": "Rotate Access Key"}
-    ]
-    dspm_vuln_data = [
-        {"Resource": "db-backup.sql", "Type": "Secrets", "Severity": "Critical", "Issue": "Hardcoded Passwords Found", "Data_Type": "Password"},
-        {"Resource": "customer_list.csv", "Type": "DSPM", "Severity": "Critical", "Issue": "Unencrypted PII (SSN)", "Data_Type": "PII"},
-        {"Resource": "health_records.pdf", "Type": "DSPM", "Severity": "High", "Issue": "PHI Exposure", "Data_Type": "PHI"},
-        {"Resource": "billing_export.xlsx", "Type": "DSPM", "Severity": "Critical", "Issue": "Plaintext Bank Account Numbers", "Data_Type": "Bank Account"}
-    ]
-    comp_data = [
-        {"Framework": "CIS AWS Foundations", "Passed": 45, "Failed": 5, "Status": "88%"},
-        {"Framework": "PCI-DSS v4.0", "Passed": 112, "Failed": 12, "Status": "90%"},
-        {"Framework": "SOC 2 Type II", "Passed": 154, "Failed": 8, "Status": "95%"}
-    ]
-    st.session_state['cspm_results'] = pd.DataFrame(cspm_data)
-    st.session_state['ciem_results'] = pd.DataFrame(ciem_data)
-    st.session_state['dspm_vulnerability_results'] = pd.DataFrame(dspm_vuln_data)
-    st.session_state['compliance_results'] = pd.DataFrame(comp_data)
-    st.session_state['last_scan_time'] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+def run_automated_scan(module_name="Full System"):
+    """Logic to simulate a full environment scan with status updates"""
+    with st.status(f"Running {module_name} Scan...", expanded=True) as status:
+        st.write("🔍 Initializing security modules...")
+        time.sleep(1)
+        st.write(f"🛰️ Connecting to cloud endpoints for {module_name}...")
+        time.sleep(1.5)
+        st.write("📊 Analyzing resource configurations against frameworks...")
+        time.sleep(1)
+        
+        cspm_data = [
+            {"Resource": "s3-finance-bucket", "Type": "S3", "Severity": "Critical", "Issue": "Public Read Access", "Framework": "PCI-DSS", "Remediation": "Block Public Access"},
+            {"Resource": "ec2-web-server", "Type": "Toxic Combination", "Severity": "Critical", "Issue": "Vulnerable + Admin Role", "Framework": "CIS AWS", "Remediation": "Restrict SG to Trusted IP"}
+        ]
+        ciem_data = [
+            {"Resource": "admin-user-01", "Type": "IAM User", "Severity": "High", "Issue": "MFA Disabled", "Framework": "SOC 2", "Remediation": "Enable MFA"},
+            {"Resource": "test-key-01", "Type": "Access Key", "Severity": "Medium", "Issue": "Key Rotation Overdue", "Framework": "CIS", "Remediation": "Rotate Access Key"}
+        ]
+        dspm_vuln_data = [
+            {"Resource": "db-backup.sql", "Type": "Secrets", "Severity": "Critical", "Issue": "Hardcoded Passwords Found", "Data_Type": "Password"},
+            {"Resource": "customer_list.csv", "Type": "DSPM", "Severity": "Critical", "Issue": "Unencrypted PII (SSN)", "Data_Type": "PII"},
+            {"Resource": "health_records.pdf", "Type": "DSPM", "Severity": "High", "Issue": "PHI Exposure", "Data_Type": "PHI"},
+            {"Resource": "billing_export.xlsx", "Type": "DSPM", "Severity": "Critical", "Issue": "Plaintext Bank Account Numbers", "Data_Type": "Bank Account"}
+        ]
+        comp_data = [
+            {"Framework": "CIS AWS Foundations", "Passed": 45, "Failed": 5, "Status": "88%"},
+            {"Framework": "PCI-DSS v4.0", "Passed": 112, "Failed": 12, "Status": "90%"},
+            {"Framework": "SOC 2 Type II", "Passed": 154, "Failed": 8, "Status": "95%"}
+        ]
+        
+        st.session_state['cspm_results'] = pd.DataFrame(cspm_data)
+        st.session_state['ciem_results'] = pd.DataFrame(ciem_data)
+        st.session_state['dspm_vulnerability_results'] = pd.DataFrame(dspm_vuln_data)
+        st.session_state['compliance_results'] = pd.DataFrame(comp_data)
+        st.session_state['last_scan_time'] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        status.update(label=f"{module_name} Scan Complete!", state="complete", expanded=False)
 
 # Main Tabs
 tabs_list = [
@@ -100,7 +111,6 @@ with active_tab[0]:
     st.header("Cloud Security Posture Overview")
     st.caption(f"⏱️ Last Periodic Scan: {st.session_state['last_scan_time']}")
     
-    # Calculate Real-time Metrics (Consolidated logic from both versions)
     all_findings = pd.concat([
         st.session_state['cspm_results'], 
         st.session_state['ciem_results'],
@@ -167,7 +177,7 @@ with active_tab[1]:
         if not st.session_state['schedule_enabled']:
             if st.button("⏰ Enable Periodic Scanning", type="primary"):
                 st.session_state['schedule_enabled'] = True
-                run_automated_scan()
+                run_automated_scan("Scheduled System")
                 st.rerun()
         else:
             st.success(f"Periodic Scanning is ACTIVE ({interval})")
@@ -187,7 +197,7 @@ with active_tab[2]:
 with active_tab[3]:
     st.header("🔍 CSPM: Inventory & Vulnerability Scan")
     if st.button("Run Infrastructure Scan"):
-        run_automated_scan()
+        run_automated_scan("CSPM")
     if not st.session_state['cspm_results'].empty:
         st.dataframe(st.session_state['cspm_results'], use_container_width=True)
     else:
@@ -197,7 +207,7 @@ with active_tab[3]:
 with active_tab[4]:
     st.header("🔑 CIEM: Identity Mapping")
     if st.button("Run CIEM Identity Scan"):
-        run_automated_scan()
+        run_automated_scan("CIEM")
     if not st.session_state['ciem_results'].empty:
         st.table(st.session_state['ciem_results'])
     else:
@@ -207,7 +217,7 @@ with active_tab[4]:
 with active_tab[5]:
     st.header("🛡️ Data Security Posture Management (DSPM)")
     if st.button("Run Deep Data Discovery Scan"):
-        run_automated_scan()
+        run_automated_scan("DSPM")
     if not st.session_state['dspm_vulnerability_results'].empty:
         st.dataframe(st.session_state['dspm_vulnerability_results'], use_container_width=True)
         type_dist = st.session_state['dspm_vulnerability_results']['Data_Type'].value_counts()
