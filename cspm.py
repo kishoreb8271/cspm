@@ -18,26 +18,40 @@ st.markdown("""
         border-radius: 5px;
         border: 1px solid #444;
     }
-    /* Average Age Gauge-style box */
-    .age-card {
-        background-color: #1e1e1e;
-        border: 1px solid #333;
-        padding: 15px;
+    
+    /* Average Age Card Styles */
+    .age-container {
+        display: flex;
+        justify-content: space-between;
+        background-color: #0e1117;
+        padding: 10px;
         border-radius: 10px;
+    }
+    .age-card {
+        flex: 1;
+        background-color: #1e2129;
+        border: 1px solid #333;
+        margin: 0 10px;
+        padding: 15px;
+        border-radius: 8px;
         text-align: center;
+        min-width: 150px;
     }
     .age-value {
-        font-size: 24px;
+        font-size: 28px;
         font-weight: bold;
         color: #ff4b4b;
+        margin-bottom: 2px;
     }
     .age-label {
         font-size: 14px;
-        color: #888;
+        color: #ffffff;
+        font-weight: 500;
     }
-    .sla-label {
-        font-size: 10px;
-        color: #555;
+    .age-sla {
+        font-size: 11px;
+        color: #888;
+        margin-top: 5px;
     }
     </style>
     """, unsafe_allow_html=True)
@@ -60,21 +74,23 @@ if 'schedule_enabled' not in st.session_state:
 
 # --- HELPER FUNCTIONS ---
 def run_automated_scan():
-    """Logic to simulate background scan including 'Days Open' for aging data"""
-    # Added "Days Open" to findings
+    """Logic to simulate a background periodic scan with Aging data"""
+    # 1. CSPM & Toxic Combinations (Added 'Days Open')
     cspm_data = [
         {"Resource": "s3-finance-bucket", "Type": "S3", "Severity": "Critical", "Issue": "Public Read Access", "Remediation": "Block", "Days Open": 12},
-        {"Resource": "ec2-web-server", "Type": "Toxic Combo", "Severity": "Critical", "Issue": "Vulnerable + Admin", "Remediation": "Isolate", "Days Open": 5}
+        {"Resource": "ec2-web-server", "Type": "Toxic Combination", "Severity": "Critical", "Issue": "Vulnerable + Admin Access", "Remediation": "Isolate", "Days Open": 4}
     ]
     
+    # 2. CIEM
     ciem_data = [
         {"Resource": "admin-user-01", "Type": "IAM User", "Severity": "High", "Issue": "MFA Disabled", "Remediation": "Enable MFA", "Days Open": 45}
     ]
 
+    # 3. DSPM & Vulnerability
     dspm_vuln_data = [
         {"Resource": "s3-customer-pii", "Type": "DSPM", "Severity": "Critical", "Issue": "Unencrypted PII", "Remediation": "Encrypt", "Days Open": 2},
-        {"Resource": "ec2-prod-app", "Type": "Vulnerability", "Severity": "High", "Issue": "CVE-2023-XXXX", "Remediation": "Patch", "Days Open": 89},
-        {"Resource": "lambda-pay", "Type": "Secrets", "Severity": "Critical", "Issue": "Hardcoded Key", "Remediation": "Rotate", "Days Open": 1}
+        {"Resource": "ec2-prod-app", "Type": "Vulnerability", "Severity": "High", "Issue": "CVE-2023-XXXX", "Remediation": "Patch AMI", "Days Open": 82},
+        {"Resource": "lambda-payment", "Type": "Secrets", "Severity": "Medium", "Issue": "Hardcoded Key", "Remediation": "Secrets Manager", "Days Open": 156}
     ]
     
     st.session_state['cspm_results'] = pd.DataFrame(cspm_data)
@@ -85,15 +101,15 @@ def run_automated_scan():
 def go_to_results():
     st.session_state['active_tab_index'] = 5
 
-def display_age_card(label, days, sla):
-    """Renders the age card visually similar to the reference image"""
-    st.markdown(f"""
+def display_age_card(label, value, sla):
+    """HTML Render for the Age Metric Card"""
+    return f"""
         <div class="age-card">
-            <div class="age-value">{days} <span style="font-size:14px">days</span></div>
+            <div class="age-value">{value} <span style="font-size:14px">days</span></div>
             <div class="age-label">{label}</div>
-            <div class="sla-label">SLA: {sla} days</div>
+            <div class="age-sla">SLA: {sla} days</div>
         </div>
-    """, unsafe_allow_html=True)
+    """
 
 # Main Tabs
 tabs_list = ["📊 Executive Dashboard", "🔌 Cloud Integration", "🔍 CSPM & Risk", "🔑 CIEM", "🛡️ DSPM", "📋 Results"]
@@ -111,48 +127,49 @@ with active_tab[0]:
     ], ignore_index=True)
     
     if not all_findings.empty:
-        # 1. Primary Metrics
+        # 1. PRIMARY METRIC BUTTONS
         crit = len(all_findings[all_findings['Severity'] == 'Critical'])
         high = len(all_findings[all_findings['Severity'] == 'High'])
-        toxic = len(st.session_state['cspm_results'][st.session_state['cspm_results']['Type'] == 'Toxic Combo'])
+        toxic = len(st.session_state['cspm_results'][st.session_state['cspm_results']['Type'] == 'Toxic Combination'])
         
         col1, col2, col3, col4 = st.columns(4)
         with col1:
-            if st.button(f"🚨 Critical\n\n{crit}"): go_to_results(); st.rerun()
+            if st.button(f"🚨 Critical Issues\n\n{crit}"): go_to_results(); st.rerun()
         with col2:
-            if st.button(f"⚠️ High\n\n{high}"): go_to_results(); st.rerun()
+            if st.button(f"⚠️ High Risk\n\n{high}"): go_to_results(); st.rerun()
         with col3:
-            if st.button(f"☣️ Toxic\n\n{toxic}"): go_to_results(); st.rerun()
+            if st.button(f"☣️ Toxic Combos\n\n{toxic}"): go_to_results(); st.rerun()
         with col4:
-            if st.button(f"📋 Total\n\n{len(all_findings)}"): go_to_results(); st.rerun()
+            if st.button(f"📋 Total Findings\n\n{len(all_findings)}"): go_to_results(); st.rerun()
 
         st.divider()
 
-        # 2. AVERAGE ISSUE AGE SECTION (As requested)
+        # 2. AVERAGE ISSUE AGE SECTION (New Visual)
         st.subheader("Average Issue Age")
-        age_col1, age_col2, age_col3, age_col4 = st.columns(4)
         
-        # Calculating actual averages from the dataframe
-        avg_crit = int(all_findings[all_findings['Severity'] == 'Critical']['Days Open'].mean())
-        avg_high = int(all_findings[all_findings['Severity'] == 'High']['Days Open'].mean())
+        # Calculation logic
+        avg_crit = int(all_findings[all_findings['Severity'] == 'Critical']['Days Open'].mean()) if crit > 0 else 0
+        avg_high = int(all_findings[all_findings['Severity'] == 'High']['Days Open'].mean()) if high > 0 else 0
         
-        with age_col1:
-            display_age_card("Critical Issues", avg_crit, 30)
-        with age_col2:
-            display_age_card("High Issues", avg_high, 60)
-        with age_col3:
-            display_age_card("Medium Issues", 161, 100) # Mock
-        with age_col4:
-            display_age_card("Low Issues", 258, 180) # Mock
+        # Displaying the row of cards
+        age_html = f"""
+        <div class="age-container">
+            {display_age_card("Critical Issues", avg_crit, 30)}
+            {display_age_card("High Issues", avg_high, 60)}
+            {display_age_card("Medium Issues", 156, 100)}
+            {display_age_card("Low Issues", 241, 180)}
+        </div>
+        """
+        st.markdown(age_html, unsafe_allow_html=True)
 
         st.divider()
         
-        # 3. Distribution Chart
+        # 3. DISTRIBUTION CHART
         severity_dist = all_findings['Severity'].value_counts().reset_index()
         severity_dist.columns = ['Severity', 'Count']
-        st.subheader("Issue Distribution")
+        st.subheader("Risk Distribution Across All Modules")
         st.bar_chart(severity_dist, x="Severity", y="Count", color="#ff4b4b")
     else:
-        st.info("Run a scan to see dashboard data.")
+        st.info("Please run a scan from the specialized tabs or enable the scheduler.")
 
-# (Rest of the tabs remain functionally same as previous version...)
+# [Rest of the tabs (Integration, CSPM, CIEM, DSPM, Results) follow the same logic as your previous version]
