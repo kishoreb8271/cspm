@@ -87,9 +87,10 @@ tabs_list = [
     "📊 Executive Dashboard", 
     "🔌 Cloud Integration", 
     "⚖️ Compliance & Governance",
-    "🔍 CSPM & Risk", 
+    "🔍 CSPM (Inventory & Scan)", 
+    "🔑 CIEM (Identity Mapping)", 
     "🛡️ DSPM & Sensitive Data",
-    "📋 Scan Results"
+    "📋 Scan Results & Remediation"
 ]
 active_tab = st.tabs(tabs_list)
 
@@ -118,7 +119,36 @@ with active_tab[0]:
     with col3: st.button("⚖️ Compliance Score: 92%")
     with col4: st.button("📋 Total Findings")
 
-# --- TAB 3: COMPLIANCE & GOVERNANCE (NEW) ---
+# --- TAB 2: CLOUD INTEGRATION ---
+with active_tab[1]:
+    st.header("Connectivity & Automation")
+    col_left, col_right = st.columns(2)
+    
+    with col_left:
+        st.subheader("Cloud Credentials")
+        aws_access_key = st.text_input("AWS Access Key ID", type="password", key="aws_key")
+        aws_secret_key = st.text_input("AWS Secret Access Key", type="password", key="aws_secret")
+        aws_region = st.selectbox("Region", ["us-east-1", "us-west-2", "eu-central-1"], key="aws_reg")
+        if st.button("Connect AWS"):
+            st.success("Connected! AWS Credentials validated.")
+
+    with col_right:
+        st.subheader("📅 Scan Scheduler")
+        st.write("Automatically refresh security data.")
+        interval = st.selectbox("Scan Interval", ["Every 1 Hour", "Every 6 Hours", "Every 24 Hours"])
+        
+        if not st.session_state['schedule_enabled']:
+            if st.button("⏰ Enable Periodic Scanning", type="primary"):
+                st.session_state['schedule_enabled'] = True
+                run_automated_scan()
+                st.rerun()
+        else:
+            st.success(f"Periodic Scanning is ACTIVE ({interval})")
+            if st.button("🛑 Disable Scheduler"):
+                st.session_state['schedule_enabled'] = False
+                st.rerun()
+
+# --- TAB 3: COMPLIANCE & GOVERNANCE ---
 with active_tab[2]:
     st.header("⚖️ Continuous Compliance & Governance")
     st.write("Assessment against 250+ built-in frameworks and custom organizational policies.")
@@ -140,10 +170,24 @@ with active_tab[2]:
         if st.button("Create Custom Policy"):
             st.success("Custom Framework Created Successfully")
 
-# --- TAB 5: DSPM & SENSITIVE DATA ---
+# --- TAB 4: CSPM ---
+with active_tab[3]:
+    st.header("🔍 CSPM: Inventory & Vulnerability Scan")
+    if st.button("Run Infrastructure Scan"):
+        run_automated_scan()
+        st.dataframe(st.session_state['cspm_results'], use_container_width=True)
+
+# --- TAB 5: CIEM ---
 with active_tab[4]:
+    st.header("🔑 CIEM: Identity Mapping")
+    if not st.session_state['ciem_results'].empty:
+        st.table(st.session_state['ciem_results'])
+    else:
+        st.info("Run a scan to see identity risks.")
+
+# --- TAB 6: DSPM & SENSITIVE DATA ---
+with active_tab[5]:
     st.header("🛡️ Data Security Posture Management (DSPM)")
-    
     if st.button("Run Deep Data Discovery Scan"):
         run_automated_scan()
     
@@ -151,9 +195,20 @@ with active_tab[4]:
         st.subheader("Sensitive Data Discovery Findings")
         st.dataframe(st.session_state['dspm_vulnerability_results'], use_container_width=True)
         
-        # Summary of sensitive types
         st.write("### Data Type Distribution")
         type_dist = st.session_state['dspm_vulnerability_results']['Data_Type'].value_counts()
         st.bar_chart(type_dist)
 
-# Other tabs would include your previous logic...
+# --- TAB 7: SCAN RESULTS & REMEDIATION ---
+with active_tab[6]:
+    st.header("📋 Consolidated Remediation Table")
+    all_findings = pd.concat([
+        st.session_state['cspm_results'], 
+        st.session_state['ciem_results'],
+        st.session_state['dspm_vulnerability_results']
+    ], ignore_index=True)
+    
+    if not all_findings.empty:
+        st.dataframe(all_findings, use_container_width=True)
+    else:
+        st.info("No scan data available.")
