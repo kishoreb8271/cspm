@@ -25,6 +25,25 @@ st.markdown("""
         border-radius: 10px;
         border: 1px solid #333;
     }
+    /* CNAPP Dashboard Styling */
+    .cnapp-card {
+        background-color: #ff4b4b;
+        color: white;
+        padding: 20px;
+        border-radius: 5px;
+        text-align: center;
+        margin-bottom: 10px;
+    }
+    .cnapp-card h2 { margin: 0; font-size: 2.5rem; }
+    .cnapp-card p { margin: 0; font-size: 0.9rem; font-weight: bold; }
+    
+    .insight-box {
+        background-color: #1e2129;
+        border-left: 5px solid #ff4b4b;
+        padding: 10px;
+        margin-bottom: 8px;
+        font-size: 0.85rem;
+    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -91,6 +110,7 @@ def run_real_time_scan(module_name="Full System"):
 
 # Main Tabs
 tabs_list = [
+    "🤖 AI CNAPP Dashboard",
     "📊 Executive Dashboard", 
     "🔌 Cloud Integration", 
     "⚖️ Compliance & Governance",
@@ -101,8 +121,55 @@ tabs_list = [
 ]
 active_tab = st.tabs(tabs_list)
 
-# --- TAB 1: EXECUTIVE DASHBOARD ---
+# --- NEW TAB: AI CNAPP DASHBOARD ---
 with active_tab[0]:
+    st.header("🤖 AI-Powered CNAPP Risk Insights")
+    
+    # Top Critical Widgets (Qualys Style)
+    r1, r2, r3, r4, r5 = st.columns(5)
+    with r1: st.markdown('<div class="cnapp-card"><p>Vulnerable Public Instances</p><h2>11</h2></div>', unsafe_allow_html=True)
+    with r2: st.markdown('<div class="cnapp-card"><p>Critical Misconfigs</p><h2>137</h2></div>', unsafe_allow_html=True)
+    with r3: st.markdown('<div class="cnapp-card"><p>Active Threats</p><h2>2</h2></div>', unsafe_allow_html=True)
+    with r4: st.markdown('<div class="cnapp-card"><p>Perimeter Vulns</p><h2>100</h2></div>', unsafe_allow_html=True)
+    with r5: st.markdown('<div class="cnapp-card"><p>Images with Malware</p><h2>10</h2></div>', unsafe_allow_html=True)
+
+    st.divider()
+
+    c_left, c_right = st.columns([2, 1])
+
+    with c_left:
+        st.subheader("🔥 AI-Prioritized Attack Paths")
+        path_data = [
+            {"Path": "Public VM → Critical Vulnerability → Admin IAM Role → RDS Data", "Risk Score": 961},
+            {"Path": "Open S3 Bucket → PII Discovery → Lateral Movement to Lambda", "Risk Score": 952},
+            {"Path": "Zombie Identity → No MFA → Root Account Access", "Risk Score": 947}
+        ]
+        st.table(pd.DataFrame(path_data))
+        
+        st.subheader("TruRisk Insights Trend")
+        chart_data = pd.DataFrame({
+            "Day": ["06/10", "07/10", "08/10", "09/10", "Today"],
+            "Insights": [80, 85, 90, 95, 101]
+        })
+        st.line_chart(chart_data, x="Day", y="Insights")
+
+    with c_right:
+        st.subheader("🎯 Top TruRisk Insights")
+        insights = [
+            "Public VMs with malware & risky IAM credentials",
+            "Public VM associated with ransomware (No encryption)",
+            "Critical exploitable vulnerability with full access to S3",
+            "Public VM with admin privilege allowed creation of IAM artifacts",
+            "Workloads with AWS Secret Keys that can access PII"
+        ]
+        for ins in insights:
+            st.markdown(f'<div class="insight-box">⚠️ {ins}</div>', unsafe_allow_html=True)
+        
+        if st.button("Generate Detailed AI Risk Report"):
+            st.toast("Generating AI Report...")
+
+# --- TAB 1: EXECUTIVE DASHBOARD ---
+with active_tab[1]:
     st.header("Cloud Security Posture Overview")
     st.caption(f"⏱️ Last Periodic Scan: {st.session_state['last_scan_time']}")
     
@@ -136,8 +203,8 @@ with active_tab[0]:
     else:
         st.info("No data available. Connect a provider and run a scan.")
 
-# --- TAB 2: CLOUD INTEGRATION (UPDATED) ---
-with active_tab[1]:
+# --- TAB 2: CLOUD INTEGRATION ---
+with active_tab[2]:
     st.header("Connect Cloud Providers")
     st.info("Enter credentials to save integrations for continuous scanning.")
     
@@ -167,7 +234,6 @@ with active_tab[1]:
         
         elif provider == "GCP":
             project_id = st.text_input("Project ID")
-            service_account = st.text_area("Service Account JSON")
             if st.button(f"Save {provider} Integration"):
                 st.session_state['integrations']['GCP'] = {
                     "project": project_id, "account_id": project_id
@@ -181,7 +247,7 @@ with active_tab[1]:
             st.write(f"✅ **{p}**: Connected (ID: {st.session_state['integrations'][p]['account_id']})")
 
 # --- TAB 3: COMPLIANCE ---
-with active_tab[2]:
+with active_tab[3]:
     st.header("⚖️ Continuous Compliance & Governance")
     if not st.session_state['compliance_results'].empty:
         st.table(st.session_state['compliance_results'])
@@ -189,7 +255,7 @@ with active_tab[2]:
         st.info("Assessment pending scan.")
 
 # --- TAB 4: CSPM SCAN ---
-with active_tab[3]:
+with active_tab[4]:
     st.header("🔍 CSPM: Inventory & Vulnerability Scan")
     if st.button("⚡ Run Real-Time Infrastructure Scan"):
         run_real_time_scan("CSPM")
@@ -199,7 +265,7 @@ with active_tab[3]:
         st.info("No infrastructure findings yet.")
 
 # --- TAB 5: CIEM SCAN ---
-with active_tab[4]:
+with active_tab[5]:
     st.header("🔑 CIEM: Identity Mapping")
     if st.button("Run CIEM Identity Scan"):
         run_real_time_scan("CIEM")
@@ -209,7 +275,7 @@ with active_tab[4]:
         st.info("No identity risks identified.")
 
 # --- TAB 6: DSPM & SENSITIVE DATA ---
-with active_tab[5]:
+with active_tab[6]:
     st.header("🛡️ Data Security Posture Management (DSPM)")
     if st.button("Run Deep Data Discovery Scan"):
         run_real_time_scan("DSPM")
@@ -219,7 +285,7 @@ with active_tab[5]:
         st.bar_chart(type_dist)
 
 # --- TAB 7: SCAN RESULTS & REMEDIATION ---
-with active_tab[6]:
+with active_tab[7]:
     st.header("📋 Consolidated Remediation Table")
     final_df = pd.concat([st.session_state['cspm_results'], st.session_state['ciem_results']], ignore_index=True)
     if not final_df.empty:
