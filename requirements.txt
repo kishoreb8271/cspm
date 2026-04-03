@@ -3,3 +3,5 @@ streamlit
 pandas
 rich
 pyyaml
+google-genai
+Pillow
