@@ -73,11 +73,17 @@ if 'authenticated' not in st.session_state:
     st.session_state['authenticated'] = False
 if 'user_role' not in st.session_state:
     st.session_state['user_role'] = None
+
+# PERSISTENT STORAGE LOGIC: Load users from CSV or set default
 if 'user_db' not in st.session_state:
-    # Default Admin User
-    st.session_state['user_db'] = pd.DataFrame([
-        {"Username": "admin", "Password": "AdminPassword@123", "Role": "Admin"}
-    ])
+    try:
+        st.session_state['user_db'] = pd.read_csv("users.csv")
+    except FileNotFoundError:
+        # Default Admin User if no file exists
+        st.session_state['user_db'] = pd.DataFrame([
+            {"Username": "admin", "Password": "AdminPassword@123", "Role": "Admin"}
+        ])
+        st.session_state['user_db'].to_csv("users.csv", index=False)
 
 def validate_password(password):
     """Regex for complexity: Min 8 chars, 1 Upper, 1 Lower, 1 Number, 1 Special Char"""
@@ -367,7 +373,9 @@ else:
                     elif nu and np:
                         new_entry = {"Username": nu, "Password": np, "Role": nr}
                         st.session_state['user_db'] = pd.concat([st.session_state['user_db'], pd.DataFrame([new_entry])], ignore_index=True)
-                        st.success(f"User {nu} created!")
+                        # SAVE TO CSV
+                        st.session_state['user_db'].to_csv("users.csv", index=False)
+                        st.success(f"User {nu} created and saved!")
                         st.rerun()
 
             st.divider()
@@ -386,11 +394,15 @@ else:
                     if new_p_edit:
                         if validate_password(new_p_edit):
                             st.session_state['user_db'].at[idx, 'Password'] = new_p_edit
-                            st.success(f"Credentials for {user_to_edit} updated!")
+                            # SAVE TO CSV
+                            st.session_state['user_db'].to_csv("users.csv", index=False)
+                            st.success(f"Credentials for {user_to_edit} updated and saved!")
                             st.rerun()
                         else: st.error("New password does not meet requirements.")
                     else:
-                        st.success(f"Role for {user_to_edit} updated!")
+                        # SAVE TO CSV
+                        st.session_state['user_db'].to_csv("users.csv", index=False)
+                        st.success(f"Role for {user_to_edit} updated and saved!")
                         st.rerun()
 
             with del_col:
@@ -400,7 +412,9 @@ else:
                     if user_to_del == "admin": st.error("Cannot delete root account.")
                     else:
                         st.session_state['user_db'] = st.session_state['user_db'][st.session_state['user_db']['Username'] != user_to_del]
-                        st.warning(f"User {user_to_del} removed.")
+                        # SAVE TO CSV
+                        st.session_state['user_db'].to_csv("users.csv", index=False)
+                        st.warning(f"User {user_to_del} removed and database updated.")
                         st.rerun()
 
     # --- BACKGROUND SCHEDULER EXECUTION ---
