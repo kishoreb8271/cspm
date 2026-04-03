@@ -89,8 +89,9 @@ def run_real_time_scan(module_name="Full System"):
     dspm_data = []
 
     with st.status(f"🚀 Running {module_name} Scan...", expanded=True) as status:
-        for provider, creds in st.session_state['integrations'].items():
-            st.write(f"🛰️ Scanning {provider} ({creds.get('account_id', 'Default')})...")
+        for account_name, creds in st.session_state['integrations'].items():
+            provider = creds.get('provider')
+            st.write(f"🛰️ Scanning {provider}: {account_name}...")
             
             if provider == "AWS":
                 try:
@@ -107,8 +108,7 @@ def run_real_time_scan(module_name="Full System"):
                             "Remediation": "Enable Block Public Access"
                         })
                         
-                        # Enhanced DSPM Logic (Check for sensitive data/secrets)
-                        # In a real scenario, you'd scan file contents here.
+                        # Enhanced DSPM Logic
                         identified_secret = True # Mocking discovery
                         if identified_secret:
                             dspm_data.append({
@@ -131,7 +131,11 @@ def run_real_time_scan(module_name="Full System"):
                             "Remediation": "Enforce MFA Policy"
                         })
                 except Exception as e:
-                    st.error(f"Scan Error on {provider}: {e}")
+                    st.error(f"Scan Error on {account_name}: {e}")
+            
+            elif provider == "Azure":
+                # Placeholder for Azure logic
+                st.info(f"Azure API Scan initiated for {account_name} (Mocked)")
 
         # Update Session Data
         st.session_state['cspm_results'] = pd.DataFrame(results_cspm)
@@ -176,7 +180,6 @@ with active_tab[0]:
 
     with c_left:
         st.subheader("🔥 AI-Prioritized Findings")
-        # Merging results for a master view in AI tab
         if not st.session_state['cspm_results'].empty or not st.session_state['ciem_results'].empty:
             ai_view = pd.concat([st.session_state['cspm_results'], st.session_state['ciem_results']], ignore_index=True)
             st.dataframe(ai_view[['Resource', 'Issue', 'Severity', 'Type']], use_container_width=True)
@@ -219,41 +222,72 @@ with active_tab[1]:
     if not all_findings.empty:
         st.bar_chart(all_findings['Severity'].value_counts())
 
-# --- TAB 2: CLOUD INTEGRATION ---
+# --- TAB 2: CLOUD INTEGRATION (UPDATED FOR MULTIPLE PROVIDERS) ---
 with active_tab[2]:
     st.header("🔌 Connectivity & Automation")
     col_left, col_right = st.columns(2)
+    
     with col_left:
-        st.subheader("Cloud Credentials")
-        aws_key = st.text_input("AWS Access Key ID", type="password")
-        aws_sec = st.text_input("AWS Secret Access Key", type="password")
-        aws_reg = st.selectbox("Region", ["us-east-1", "us-west-2"])
-        if st.button("Connect AWS"):
-            st.session_state['integrations']['AWS'] = {'key': aws_key, 'secret': aws_sec, 'region': aws_reg, 'account_id': 'AWS-PROD-01'}
-            st.success("AWS Connected Successfully!")
+        st.subheader("Connect New Cloud Provider")
+        provider_choice = st.selectbox("Select Provider", ["AWS", "Azure", "GCP"])
+        account_id = st.text_input("Account Name / ID (e.g. Prod-Environment)")
+        
+        if provider_choice == "AWS":
+            key = st.text_input("AWS Access Key ID", type="password")
+            secret = st.text_input("AWS Secret Access Key", type="password")
+            region = st.selectbox("Region", ["us-east-1", "us-west-2", "eu-central-1"])
+            if st.button(f"Add {provider_choice} Connection"):
+                if account_id and key and secret:
+                    st.session_state['integrations'][account_id] = {
+                        'provider': 'AWS', 'key': key, 'secret': secret, 'region': region
+                    }
+                    st.success(f"AWS Account '{account_id}' saved!")
+                else:
+                    st.error("Please fill all AWS fields.")
+                    
+        elif provider_choice == "Azure":
+            client_id = st.text_input("Client ID", type="password")
+            tenant_id = st.text_input("Tenant ID", type="password")
+            if st.button(f"Add {provider_choice} Connection"):
+                if account_id and client_id and tenant_id:
+                    st.session_state['integrations'][account_id] = {
+                        'provider': 'Azure', 'client_id': client_id, 'tenant_id': tenant_id
+                    }
+                    st.success(f"Azure Account '{account_id}' saved!")
+                else:
+                    st.error("Please fill all Azure fields.")
 
     with col_right:
+        st.subheader("📋 Saved Integrations")
+        if st.session_state['integrations']:
+            integrations_df = pd.DataFrame.from_dict(st.session_state['integrations'], orient='index')
+            st.table(integrations_df[['provider']])
+            if st.button("Clear All Connections"):
+                st.session_state['integrations'] = {}
+                st.rerun()
+        else:
+            st.info("No accounts connected yet.")
+
+        st.divider()
         st.subheader("📅 Scan Scheduler")
         interval = st.selectbox("Scan Interval", ["Every 1 Hour", "Every 6 Hours", "Daily"])
         st.session_state['schedule_enabled'] = st.toggle("Enable Periodic Scanning", value=st.session_state['schedule_enabled'])
         if st.session_state['schedule_enabled']:
-            st.success(f"Scanning ACTIVE: {interval}")
+            st.success(f"Scanning ACTIVE for {len(st.session_state['integrations'])} accounts.")
 
-# --- TAB 3: COMPLIANCE & GOVERNANCE (FIXED) ---
+# --- TAB 3: COMPLIANCE & GOVERNANCE ---
 with active_tab[3]:
     st.header("⚖️ Compliance & Governance")
     if not st.session_state['compliance_results'].empty:
         st.subheader("Regulatory Compliance Progress")
         st.table(st.session_state['compliance_results'])
-        
-        # Additional visualization for compliance
         passed = st.session_state['compliance_results']['Passed'].sum()
         failed = st.session_state['compliance_results']['Failed'].sum()
         st.write(f"**Total Controls Assessed:** {passed + failed}")
     else:
         st.info("No compliance data available. Please run a scan to populate this tab.")
 
-# --- FUNCTIONAL TABS (CSPM, CIEM, DSPM) ---
+# --- FUNCTIONAL TABS ---
 with active_tab[4]:
     st.header("🔍 Infrastructure Scan")
     if st.button("⚡ Run CSPM Scan"): run_real_time_scan("CSPM")
@@ -267,16 +301,13 @@ with active_tab[5]:
 with active_tab[6]:
     st.header("🛡️ Data Security Posture Management")
     if st.button("Run DSPM Scan"): run_real_time_scan("DSPM")
-    
-    # Updated Display Logic: Only show if sensitive data identified
     if not st.session_state['dspm_results'].empty:
         st.subheader("Identified Sensitive Data & Secrets")
-        st.dataframe(st.session_state['dspm_results'][['Resource', 'File_Name', 'Severity', 'Issue', 'Data_Type']], use_container_width=True)
-        st.bar_chart(st.session_state['dspm_results']['Data_Type'].value_counts())
+        st.dataframe(st.session_state['dspm_results'], use_container_width=True)
     else:
-        st.info("No sensitive data or secrets discovered in the last scan.")
+        st.info("No sensitive data discovered.")
 
-# --- TAB 7: SCAN RESULTS & REMEDIATION ---
+# --- TAB 7: SCAN RESULTS ---
 with active_tab[7]:
     st.header("📋 Master Remediation Table")
     final_df = pd.concat([st.session_state['cspm_results'], st.session_state['ciem_results'], st.session_state['dspm_results']], ignore_index=True)
@@ -285,4 +316,4 @@ with active_tab[7]:
         csv = final_df.to_csv(index=False).encode('utf-8')
         st.download_button("📩 Download Full Security Report", data=csv, file_name="security_report.csv", mime="text/csv")
     else:
-        st.info("No findings to display. Run a scan first.")
+        st.info("No findings to display.")
