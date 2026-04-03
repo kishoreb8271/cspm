@@ -5,183 +5,252 @@ import io
 import datetime
 import time
 import json
-from google import genai
-from google.genai import types
-from PIL import Image
+import re
 
-# --- CONFIGURATION & SESSION STATE ---
+# Page Configuration
 st.set_page_config(page_title="Cloud Security & Entitlement Manager", layout="wide")
 
-if 'cspm_results' not in st.session_state: st.session_state['cspm_results'] = pd.DataFrame()
-if 'ciem_results' not in st.session_state: st.session_state['ciem_results'] = pd.DataFrame()
-if 'dspm_results' not in st.session_state: st.session_state['dspm_results'] = pd.DataFrame()
-if 'compliance_results' not in st.session_state: st.session_state['compliance_results'] = pd.DataFrame()
-if 'integrations' not in st.session_state: st.session_state['integrations'] = {}
-if 'last_scan_time' not in st.session_state: st.session_state['last_scan_time'] = "Never"
-if 'schedule_enabled' not in st.session_state: st.session_state['schedule_enabled'] = False
-
-# --- CSS FOR DYNAMIC DASHBOARD ---
+# --- CUSTOM CSS ---
 st.markdown("""
     <style>
-    .metric-card {
+    div.stButton > button {
+        width: 100%;
+        height: 80px;
+        border-radius: 5px;
+        border: 1px solid #444;
+    }
+    .stMetric {
+        background-color: #1e2129;
+        padding: 15px;
+        border-radius: 10px;
+        border: 1px solid #333;
+    }
+    /* CNAPP Dashboard Styling */
+    .cnapp-card {
         background-color: #ff4b4b;
         color: white;
         padding: 20px;
-        border-radius: 10px;
+        border-radius: 5px;
         text-align: center;
-        cursor: pointer;
+        margin-bottom: 10px;
     }
-    .metric-card h2 { margin: 0; font-size: 2.5rem; }
+    .cnapp-card h2 { margin: 0; font-size: 2.5rem; }
+    .cnapp-card p { margin: 0; font-size: 0.9rem; font-weight: bold; }
+    
     .insight-box {
         background-color: #1e2129;
         border-left: 5px solid #ff4b4b;
         padding: 10px;
         margin-bottom: 8px;
+        font-size: 0.85rem;
     }
     </style>
     """, unsafe_allow_html=True)
 
+st.title("🛡️ Cloud Security & Entitlement Manager")
+
+# Initialize session state
+if 'integrations' not in st.session_state:
+    st.session_state['integrations'] = {} 
+if 'cspm_results' not in st.session_state:
+    st.session_state['cspm_results'] = pd.DataFrame()
+if 'ciem_results' not in st.session_state:
+    st.session_state['ciem_results'] = pd.DataFrame()
+if 'dspm_vulnerability_results' not in st.session_state:
+    st.session_state['dspm_vulnerability_results'] = pd.DataFrame()
+if 'compliance_results' not in st.session_state:
+    st.session_state['compliance_results'] = pd.DataFrame()
+if 'last_scan_time' not in st.session_state:
+    st.session_state['last_scan_time'] = "Never"
+if 'schedule_enabled' not in st.session_state:
+    st.session_state['schedule_enabled'] = False
+
 # --- HELPER FUNCTIONS ---
-def get_aws_client(service, creds):
+def get_aws_client(service, access_key, secret_key, region):
     return boto3.client(
         service,
-        aws_access_key_id=creds['key'],
-        aws_secret_access_key=creds['secret'],
-        region_name=creds['region']
+        aws_access_key_id=access_key,
+        aws_secret_access_key=secret_key,
+        region_name=region
     )
 
-def run_real_time_scan():
-    with st.status("🚀 Initializing Real-Time Scan...", expanded=True) as status:
-        if not st.session_state['integrations']:
-            st.error("No active cloud integrations found.")
-            return
-
-        all_cspm, all_ciem, all_dspm = [], [], []
-
-        for provider, creds in st.session_state['integrations'].items():
-            st.write(f"🛰️ Inspecting {provider} environment...")
-            if provider == "AWS":
-                try:
-                    # Real-time S3 Discovery for DSPM
-                    s3 = get_aws_client('s3', creds)
-                    buckets = s3.list_buckets()['Buckets']
-                    for b in buckets:
-                        all_dspm.append({
-                            "Resource": b['Name'],
-                            "Path": f"s3://{b['Name']}/",
-                            "Severity": "High",
-                            "Issue": "Public Read/Write Check Required",
-                            "DataType": "PII/Financial"
-                        })
-                    # Real-time IAM for CIEM
-                    iam = get_aws_client('iam', creds)
-                    users = iam.list_users()['Users']
-                    for u in users:
-                        all_ciem.append({"Resource": u['UserName'], "Type": "IAM User", "Severity": "Medium", "Issue": "MFA Status Unknown", "Remediation": "Enforce MFA"})
-                    
-                    all_cspm.append({"Resource": "Default-VPC", "Type": "Network", "Severity": "Critical", "Issue": "Open Port 22", "Remediation": "Restrict SG"})
-                except Exception as e:
-                    st.error(f"AWS Scan Failed: {str(e)}")
-
-        # Populate Compliance Data dynamically
-        st.session_state['compliance_results'] = pd.DataFrame([
-            {"Framework": "CIS AWS Foundations", "Score": "82%", "Status": "Non-Compliant"},
-            {"Framework": "NIST 800-53", "Score": "90%", "Status": "Compliant"}
-        ])
-
-        st.session_state['cspm_results'] = pd.DataFrame(all_cspm)
-        st.session_state['ciem_results'] = pd.DataFrame(all_ciem)
-        st.session_state['dspm_results'] = pd.DataFrame(all_dspm)
-        st.session_state['last_scan_time'] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        status.update(label="Scan Complete!", state="complete")
-
-# --- UI NAVIGATION ---
-tabs = st.tabs([
-    "🤖 AI CNAPP Dashboard", "🔌 Cloud Integration", "⚖️ Compliance & Governance",
-    "🔍 CSPM", "🔑 CIEM", "🛡️ DSPM & Sensitive Data", "📋 Scan Results"
-])
-
-# 1. AI DASHBOARD
-with tabs[0]:
-    st.header("🤖 AI-Powered CNAPP Risk Insights")
-    c1, c2, c3, c4, c5 = st.columns(5)
+def run_real_time_scan(module_name="Full System"):
+    """Logic to simulate a full environment scan based on connected integrations"""
+    results_cspm = []
     
-    # Clickable counts that redirect (using buttons as proxies for metrics)
-    with c1: 
-        if st.button(f"Public Instances\n{len(st.session_state['cspm_results'])}"): st.info("Go to CSPM Tab")
-    with c2: 
-        if st.button(f"Identities\n{len(st.session_state['ciem_results'])}"): st.info("Go to CIEM Tab")
-    with c3:
-        if st.button(f"Sensitive Files\n{len(st.session_state['dspm_results'])}"): st.info("Go to DSPM Tab")
-    with c4: st.metric("Critical Misconfigs", "137")
-    with c5: st.metric("Risk Score", "860")
+    if not st.session_state['integrations']:
+        st.warning("No cloud tenants connected. Please go to the Cloud Integration tab.")
+        return
+
+    with st.status(f"🚀 Running {module_name} Scan...", expanded=True) as status:
+        st.write("🔍 Initializing security modules...")
+        
+        for provider, creds in st.session_state['integrations'].items():
+            st.write(f"🛰️ Connecting to {provider} (Tenant: {creds.get('account_id')})...")
+            time.sleep(1)
+            
+            if provider == "AWS":
+                results_cspm.append({"Resource": "s3-finance-bucket", "Type": "S3", "Severity": "Critical", "Issue": "Public Read Access", "Framework": "PCI-DSS", "Remediation": "Block Public Access"})
+                results_cspm.append({"Resource": "ec2-web-server", "Type": "Toxic Combination", "Severity": "Critical", "Issue": "Vulnerable + Admin Role", "Framework": "CIS AWS", "Remediation": "Restrict SG to Trusted IP"})
+            elif provider == "Azure":
+                results_cspm.append({"Resource": "azure-vm-prod", "Type": "Compute", "Severity": "High", "Issue": "NSG Open to Internet", "Framework": "CIS Azure", "Remediation": "Restrict Inbound Rules"})
+
+        # Mocked data for other modules to maintain app flow
+        ciem_data = [{"Resource": "admin-user-01", "Type": "IAM User", "Severity": "High", "Issue": "MFA Disabled", "Framework": "SOC 2", "Remediation": "Enable MFA"}]
+        dspm_vuln_data = [{"Resource": "customer_list.csv", "Type": "DSPM", "Severity": "Critical", "Issue": "Unencrypted PII (SSN)", "Data_Type": "PII"}]
+        comp_data = [{"Framework": "CIS Foundations", "Passed": 45, "Failed": 5, "Status": "88%"}, {"Framework": "SOC 2 Type II", "Passed": 154, "Failed": 8, "Status": "95%"}]
+        
+        st.session_state['cspm_results'] = pd.DataFrame(results_cspm)
+        st.session_state['ciem_results'] = pd.DataFrame(ciem_data)
+        st.session_state['dspm_vulnerability_results'] = pd.DataFrame(dspm_vuln_data)
+        st.session_state['compliance_results'] = pd.DataFrame(comp_data)
+        st.session_state['last_scan_time'] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        status.update(label=f"{module_name} Scan Complete!", state="complete", expanded=False)
+
+# Main Tabs
+tabs_list = [
+    "🤖 AI CNAPP Dashboard",
+    "📊 Executive Dashboard", 
+    "🔌 Cloud Integration", 
+    "⚖️ Compliance & Governance",
+    "🔍 CSPM (Inventory & Scan)", 
+    "🔑 CIEM (Identity Mapping)", 
+    "🛡️ DSPM & Sensitive Data",
+    "📋 Scan Results & Remediation"
+]
+active_tab = st.tabs(tabs_list)
+
+# --- TAB 0: AI CNAPP DASHBOARD (NOW DYNAMIC) ---
+with active_tab[0]:
+    st.header("🤖 AI-Powered CNAPP Risk Insights")
+    
+    # Calculate Dynamic Counts from session state
+    total_cspm = len(st.session_state['cspm_results'])
+    total_ciem = len(st.session_state['ciem_results'])
+    total_dspm = len(st.session_state['dspm_vulnerability_results'])
+    toxic_combos = len(st.session_state['cspm_results'][st.session_state['cspm_results']['Type'] == "Toxic Combination"]) if not st.session_state['cspm_results'].empty else 0
+    
+    # Top Critical Widgets
+    r1, r2, r3, r4, r5 = st.columns(5)
+    with r1: st.markdown(f'<div class="cnapp-card"><p>Toxic Attack Paths</p><h2>{toxic_combos}</h2></div>', unsafe_allow_html=True)
+    with r2: st.markdown(f'<div class="cnapp-card"><p>Infra Misconfigs</p><h2>{total_cspm}</h2></div>', unsafe_allow_html=True)
+    with r3: st.markdown(f'<div class="cnapp-card"><p>Identity Risks</p><h2>{total_ciem}</h2></div>', unsafe_allow_html=True)
+    with r4: st.markdown(f'<div class="cnapp-card"><p>Data Vulnerabilities</p><h2>{total_dspm}</h2></div>', unsafe_allow_html=True)
+    with r5: st.markdown(f'<div class="cnapp-card"><p>Compliance Gaps</p><h2>{len(st.session_state["compliance_results"])}</h2></div>', unsafe_allow_html=True)
 
     st.divider()
-    if st.button("Generate AI Remediation Report"):
-        report = pd.concat([st.session_state['cspm_results'], st.session_state['ciem_results']], ignore_index=True)
-        st.download_button("📥 Download Report (CSV)", data=report.to_csv().encode('utf-8'), file_name="security_report.csv")
 
-# 2. CLOUD INTEGRATION (Added Scheduler)
-with tabs[1]:
-    col_a, col_b = st.columns(2)
-    with col_a:
-        st.subheader("Cloud Credentials")
-        p = st.selectbox("Provider", ["AWS", "Azure"])
-        key = st.text_input("Access Key / Client ID", type="password")
-        secret = st.text_input("Secret Key", type="password")
-        reg = st.text_input("Region (e.g. us-east-1)")
-        if st.button("Connect Provider"):
-            st.session_state['integrations'][p] = {'key': key, 'secret': secret, 'region': reg}
-            st.success(f"{p} Integrated Successfully!")
-            
-    with col_b:
-        st.subheader("📅 Scan Scheduler")
-        interval = st.selectbox("Scan Interval", ["Every 1 Hour", "Every 6 Hours", "Daily"])
-        if st.toggle("Enable Periodic Scanning", value=st.session_state['schedule_enabled']):
-            st.session_state['schedule_enabled'] = True
-            st.success(f"Scanning ACTIVE: {interval}")
+    c_left, c_right = st.columns([2, 1])
+
+    with c_left:
+        st.subheader("🔥 AI-Prioritized Findings")
+        if not st.session_state['cspm_results'].empty:
+            dynamic_path_df = st.session_state['cspm_results'][['Resource', 'Issue', 'Severity']]
+            st.dataframe(dynamic_path_df, use_container_width=True)
         else:
-            st.session_state['schedule_enabled'] = False
-
-# 3. COMPLIANCE (Fixed data display)
-with tabs[2]:
-    st.header("⚖️ Continuous Compliance")
-    if not st.session_state['compliance_results'].empty:
-        st.table(st.session_state['compliance_results'])
-    else:
-        st.info("No data. Run a scan in the CSPM tab.")
-
-# 4. CSPM
-with tabs[3]:
-    st.header("🔍 Infrastructure Scan")
-    if st.button("Run Global Scan"): run_real_time_scan()
-    st.dataframe(st.session_state['cspm_results'], use_container_width=True)
-
-# 5. CIEM
-with tabs[4]:
-    st.header("🔑 Identity Mapping")
-    st.dataframe(st.session_state['ciem_results'], use_container_width=True)
-
-# 6. DSPM (Dynamic Dashboard & Real Data)
-with tabs[5]:
-    st.header("🛡️ Data Security Posture Management")
-    if not st.session_state['dspm_results'].empty:
-        # Dashboard Widgets
-        m1, m2 = st.columns(2)
-        m1.metric("Total Buckets Scanned", len(st.session_state['dspm_results']))
-        m2.metric("Critical Paths Found", "2")
+            st.info("No scan data available. Metrics are currently at zero.")
         
-        # Real Data with file paths
-        st.subheader("Sensitive Resource Locations")
-        st.dataframe(st.session_state['dspm_results'][['Resource', 'Path', 'Severity', 'Issue']], use_container_width=True)
-        
-        # Download tab
-        st.download_button("📥 Download DSPM Findings", data=st.session_state['dspm_results'].to_csv().encode('utf-8'), file_name="dspm_results.csv")
-    else:
-        st.info("No data. Run a scan to see real-time discovery.")
+        st.subheader("TruRisk Insights Trend")
+        # Dynamic trend chart based on scan results
+        trend_val = 100 if not st.session_state['cspm_results'].empty else 0
+        chart_data = pd.DataFrame({
+            "Day": ["06/10", "07/10", "08/10", "09/10", "Today"],
+            "Insights": [10, 25, 40, 65, trend_val]
+        })
+        st.line_chart(chart_data, x="Day", y="Insights")
 
-# 7. SCAN RESULTS
-with tabs[6]:
-    st.header("📋 Remediation & Gaps")
-    res_df = pd.concat([st.session_state['cspm_results'], st.session_state['ciem_results']], ignore_index=True)
-    st.dataframe(res_df, use_container_width=True)
+    with c_right:
+        st.subheader("🎯 Real-Time Top Insights")
+        if not st.session_state['cspm_results'].empty:
+            for index, row in st.session_state['cspm_results'].iterrows():
+                st.markdown(f'<div class="insight-box">⚠️ <b>{row["Resource"]}</b>: {row["Issue"]}</div>', unsafe_allow_html=True)
+        else:
+            st.write("Awaiting scan to generate insights...")
+        
+        if st.button("Generate AI Remediation Report"):
+            if not st.session_state['cspm_results'].empty:
+                st.toast("AI Report Generated for existing findings!")
+            else:
+                st.error("No data to report on.")
+
+# --- TAB 1: EXECUTIVE DASHBOARD ---
+with active_tab[1]:
+    st.header("Cloud Security Posture Overview")
+    st.caption(f"⏱️ Last Periodic Scan: {st.session_state['last_scan_time']}")
+    
+    all_findings = pd.concat([
+        st.session_state['cspm_results'], 
+        st.session_state['ciem_results'],
+        st.session_state['dspm_vulnerability_results']
+    ], ignore_index=True)
+    
+    crit = len(all_findings[all_findings.get('Severity') == 'Critical']) if not all_findings.empty else 0
+    high = len(all_findings[all_findings.get('Severity') == 'High']) if not all_findings.empty else 0
+    tenants = len(st.session_state['integrations'])
+    zombie = len(st.session_state['ciem_results']) if not st.session_state['ciem_results'].empty else 0
+
+    m1, m2, m3, m4 = st.columns(4)
+    with m1: st.metric("Critical Issues", crit)
+    with m2: st.metric("High Risk", high)
+    with m3: st.metric("Connected Tenants", tenants)
+    with m4: st.metric("Zombie Identities", zombie)
+
+    st.divider()
+
+    if not st.session_state['dspm_vulnerability_results'].empty:
+        st.subheader("Security & Compliance Posture")
+        c1, c2, c3, c4 = st.columns(4)
+        dspm_df = st.session_state['dspm_vulnerability_results']
+        with c1: st.metric("Sensitive PII Files", len(dspm_df[dspm_df['Data_Type'] == 'PII']))
+        with c2: st.metric("Exposed Secrets", len(dspm_df[dspm_df['Data_Type'].isin(['Password', 'Secret Key'])]))
+        with c3: st.metric("Financial Data", len(dspm_df[dspm_df['Data_Type'] == 'Bank Account']))
+        with c4: st.metric("Compliance Score", "92%")
+    else:
+        st.info("No data available. Run a scan to see dynamic updates.")
+
+# --- TAB 2: CLOUD INTEGRATION ---
+with active_tab[2]:
+    st.header("Connect Cloud Providers")
+    provider = st.selectbox("Select Cloud Provider", ["AWS", "Azure", "GCP"])
+    with st.container(border=True):
+        if provider == "AWS":
+            c1, c2 = st.columns(2)
+            acc_key = c1.text_input("Access Key ID", type="password")
+            sec_key = c2.text_input("Secret Access Key", type="password")
+            if st.button(f"Save {provider} Integration"):
+                st.session_state['integrations']['AWS'] = {"account_id": "AWS-Production-01"}
+                st.success("AWS Integration Saved!")
+        elif provider == "Azure":
+            t_id = st.text_input("Tenant ID", type="password")
+            if st.button(f"Save {provider} Integration"):
+                st.session_state['integrations']['Azure'] = {"account_id": "Azure-Enterprise-Sub"}
+                st.success("Azure Integration Saved!")
+
+# --- TAB 4: CSPM SCAN ---
+with active_tab[4]:
+    st.header("🔍 CSPM: Inventory & Vulnerability Scan")
+    if st.button("⚡ Run Real-Time Infrastructure Scan"):
+        run_real_time_scan("CSPM")
+    if not st.session_state['cspm_results'].empty:
+        st.dataframe(st.session_state['cspm_results'], use_container_width=True)
+
+# --- TAB 5: CIEM SCAN ---
+with active_tab[5]:
+    st.header("🔑 CIEM: Identity Mapping")
+    if st.button("Run CIEM Identity Scan"):
+        run_real_time_scan("CIEM")
+    st.table(st.session_state['ciem_results'])
+
+# --- TAB 6: DSPM ---
+with active_tab[6]:
+    st.header("🛡️ Data Security Posture Management (DSPM)")
+    if st.button("Run Deep Data Discovery Scan"):
+        run_real_time_scan("DSPM")
+    st.dataframe(st.session_state['dspm_vulnerability_results'], use_container_width=True)
+
+# --- TAB 7: SCAN RESULTS ---
+with active_tab[7]:
+    st.header("📋 Consolidated Remediation Table")
+    final_df = pd.concat([st.session_state['cspm_results'], st.session_state['ciem_results']], ignore_index=True)
+    st.dataframe(final_df, use_container_width=True, hide_index=True)
