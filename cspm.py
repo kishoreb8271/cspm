@@ -49,6 +49,38 @@ st.markdown("""
         font-size: 0.85rem;
         border-radius: 4px;
     }
+
+    /* --- NEW TAB STYLING --- */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 8px;
+        background-color: #1e2129;
+        padding: 10px 10px 0px 10px;
+        border-radius: 10px 10px 0px 0px;
+        border: 1px solid #333;
+    }
+
+    .stTabs [data-baseweb="tab"] {
+        height: 50px;
+        white-space: pre-wrap;
+        background-color: #12141a;
+        border-radius: 5px 5px 0px 0px;
+        color: #888;
+        font-weight: 600;
+        padding: 10px 20px;
+        border: 1px solid transparent;
+        transition: all 0.3s ease;
+    }
+
+    .stTabs [aria-selected="true"] {
+        background-color: #262730 !important;
+        color: #ff4b4b !important;
+        border-bottom: 3px solid #ff4b4b !important;
+    }
+
+    .stTabs [data-baseweb="tab"]:hover {
+        color: #ff4b4b;
+        background-color: #262730;
+    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -222,7 +254,7 @@ with active_tab[1]:
     if not all_findings.empty:
         st.bar_chart(all_findings['Severity'].value_counts())
 
-# --- TAB 2: CLOUD INTEGRATION (UPDATED FOR MULTIPLE PROVIDERS) ---
+# --- TAB 2: CLOUD INTEGRATION ---
 with active_tab[2]:
     st.header("🔌 Connectivity & Automation")
     col_left, col_right = st.columns(2)
