@@ -131,8 +131,12 @@ else:
         st.session_state['compliance_results'] = pd.DataFrame()
     if 'last_scan_time' not in st.session_state:
         st.session_state['last_scan_time'] = "Never"
+    
+    # NEW: Scheduler State
     if 'schedule_enabled' not in st.session_state:
         st.session_state['schedule_enabled'] = False
+    if 'next_scan_time' not in st.session_state:
+        st.session_state['next_scan_time'] = None
 
     # --- HELPER FUNCTIONS ---
     def get_aws_client(service, creds):
@@ -218,7 +222,6 @@ else:
 
     active_tab = st.tabs(tabs_list)
 
-    # (Tabs 0-8 logic remains exactly as provided in the original code)
     with active_tab[0]:
         st.header("🤖 AI-Powered CNAPP Risk Insights")
         total_cspm = len(st.session_state['cspm_results'])
@@ -285,7 +288,34 @@ else:
                     if account_id and client_id and tenant_id:
                         st.session_state['integrations'][account_id] = {'provider': 'Azure', 'client_id': client_id, 'tenant_id': tenant_id}
                         st.success(f"Azure Account '{account_id}' saved!")
+        
         with col_right:
+            # --- START SCAN SCHEDULER SECTION ---
+            st.subheader("🗓️ Scan Scheduler")
+            st.caption("Automatically refresh security data.")
+            
+            scan_interval = st.selectbox("Scan Interval", 
+                                         ["Every 1 Hour", "Every 6 Hours", "Every 12 Hours", "Daily (24h)"], 
+                                         index=0)
+            
+            # Map selection to hours
+            interval_hours = {"Every 1 Hour": 1, "Every 6 Hours": 6, "Every 12 Hours": 12, "Daily (24h)": 24}[scan_interval]
+
+            if not st.session_state['schedule_enabled']:
+                if st.button("Enable Scheduler", type="primary"):
+                    st.session_state['schedule_enabled'] = True
+                    st.session_state['next_scan_time'] = datetime.datetime.now() + datetime.timedelta(hours=interval_hours)
+                    st.rerun()
+            else:
+                st.success(f"Periodic Scanning is ACTIVE ({scan_interval})")
+                st.info(f"Next scan scheduled for: {st.session_state['next_scan_time'].strftime('%Y-%m-%d %H:%M:%S')}")
+                if st.button("Disable Scheduler"):
+                    st.session_state['schedule_enabled'] = False
+                    st.session_state['next_scan_time'] = None
+                    st.rerun()
+            # --- END SCAN SCHEDULER SECTION ---
+
+            st.divider()
             st.subheader("📋 Saved Integrations")
             if st.session_state['integrations']:
                 integrations_df = pd.DataFrame.from_dict(st.session_state['integrations'], orient='index')
@@ -372,3 +402,11 @@ else:
                         st.session_state['user_db'] = st.session_state['user_db'][st.session_state['user_db']['Username'] != user_to_del]
                         st.warning(f"User {user_to_del} removed.")
                         st.rerun()
+
+    # --- BACKGROUND SCHEDULER EXECUTION ---
+    if st.session_state['schedule_enabled'] and st.session_state['next_scan_time']:
+        if datetime.datetime.now() >= st.session_state['next_scan_time']:
+            run_real_time_scan("Scheduled")
+            # Set next scan time based on the selected interval
+            st.session_state['next_scan_time'] = datetime.datetime.now() + datetime.timedelta(hours=interval_hours)
+            st.rerun()
