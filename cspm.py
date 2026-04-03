@@ -9,8 +9,8 @@ import re
 from PIL import Image
 
 # --- CONFIGURATION ---
-# Updated with your GitHub Raw Link
-LOGO_URL = "https://raw.githubusercontent.com/Anand-M-2024/VantageGuard/main/VantageGuard.png" 
+# Updated with your specific GitHub Raw Link
+LOGO_URL = "https://github.com/kishoreb8271/cspm/blob/main/VantageGuard.png?raw=true" 
 
 # Page Configuration
 st.set_page_config(page_title="VantageGuard | Cloud Security", layout="wide")
@@ -78,7 +78,6 @@ if 'authenticated' not in st.session_state:
 if 'user_role' not in st.session_state:
     st.session_state['user_role'] = None
 if 'user_db' not in st.session_state:
-    # Default Admin User
     st.session_state['user_db'] = pd.DataFrame([
         {"Username": "admin", "Password": "AdminPassword@123", "Role": "Admin"}
     ])
@@ -135,7 +134,7 @@ else:
     if 'last_scan_time' not in st.session_state:
         st.session_state['last_scan_time'] = "Never"
 
-    # --- HELPER FUNCTIONS ---
+    # (Helper functions and rest of the code logic follows)
     def get_aws_client(service, creds):
         return boto3.client(
             service,
@@ -248,5 +247,3 @@ else:
                 for _, row in st.session_state['cspm_results'].head(5).iterrows():
                     st.markdown(f'<div class="insight-box">⚠️ <b>{row["Resource"]}</b><br>{row["Issue"]}</div>', unsafe_allow_html=True)
             else: st.write("Awaiting scan results...")
-
-    # Remaining tabs 1-8 should be appended here from your original script.
