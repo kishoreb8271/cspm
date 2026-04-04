@@ -138,7 +138,7 @@ else:
     if 'last_scan_time' not in st.session_state:
         st.session_state['last_scan_time'] = "Never"
     
-    # NEW: Scheduler State
+    # Scheduler State
     if 'schedule_enabled' not in st.session_state:
         st.session_state['schedule_enabled'] = False
     if 'next_scan_time' not in st.session_state:
@@ -169,6 +169,7 @@ else:
                 
                 if provider == "AWS":
                     try:
+                        # 1. S3 Scan
                         s3 = get_aws_client('s3', creds)
                         buckets = s3.list_buckets()['Buckets']
                         for b in buckets:
@@ -178,26 +179,64 @@ else:
                                 "Issue": "Public Read Access", "Framework": "PCI-DSS", 
                                 "Remediation": "Enable Block Public Access"
                             })
-                            identified_secret = True 
-                            if identified_secret:
-                                dspm_data.append({
-                                    "Resource": f"s3://{b_name}/", 
-                                    "File_Name": "config_backup.env",
-                                    "Location": f"{b_name}/backup/", 
-                                    "Type": "S3 Bucket", 
-                                    "Severity": "High", 
-                                    "Issue": "Exposed AWS Secret Keys", 
-                                    "Data_Type": "Secret/API Key"
-                                })
+                            # DSPM Mock for S3
+                            dspm_data.append({
+                                "Resource": f"s3://{b_name}/", 
+                                "File_Name": "config_backup.env",
+                                "Location": f"{b_name}/backup/", 
+                                "Type": "S3 Bucket", 
+                                "Severity": "High", 
+                                "Issue": "Exposed AWS Secret Keys", 
+                                "Data_Type": "Secret/API Key"
+                            })
 
+                        # 2. EC2 & Networking Scan
+                        ec2 = get_aws_client('ec2', creds)
+                        instances = ec2.describe_instances()
+                        for res in instances['Reservations']:
+                            for inst in res['Instances']:
+                                i_id = inst['InstanceId']
+                                if 'PublicIpAddress' in inst:
+                                    results_cspm.append({"Resource": i_id, "Type": "EC2", "Severity": "Medium", "Issue": "Publicly Accessible Instance", "Framework": "NIST", "Remediation": "Move to Private Subnet"})
+                        
+                        sgs = ec2.describe_security_groups()['SecurityGroups']
+                        for sg in sgs:
+                            for perm in sg.get('IpPermissions', []):
+                                for ip in perm.get('IpRanges', []):
+                                    if ip.get('CidrIp') == '0.0.0.0/0':
+                                        results_cspm.append({"Resource": sg['GroupId'], "Type": "Security Group", "Severity": "High", "Issue": "Unrestricted Inbound Access (0.0.0.0/0)", "Framework": "CIS", "Remediation": "Restrict to Specific IP"})
+
+                        # 3. RDS Scan
+                        rds = get_aws_client('rds', creds)
+                        db_instances = rds.describe_db_instances()['DBInstances']
+                        for db in db_instances:
+                            if db['PubliclyAccessible']:
+                                results_cspm.append({"Resource": db['DBInstanceIdentifier'], "Type": "RDS", "Severity": "Critical", "Issue": "DB Publicly Accessible", "Framework": "HIPAA", "Remediation": "Disable Public Accessibility"})
+
+                        # 4. Lambda Scan
+                        lam = get_aws_client('lambda', creds)
+                        functions = lam.list_functions()['Functions']
+                        for f in functions:
+                            if 'python2.7' in f.get('Runtime', ''):
+                                results_cspm.append({"Resource": f['FunctionName'], "Type": "Lambda", "Severity": "Medium", "Issue": "Deprecated Runtime", "Framework": "SOC 2", "Remediation": "Update to Python 3.x"})
+
+                        # 5. IAM Scan (CIEM)
                         iam = get_aws_client('iam', creds)
                         users = iam.list_users()['Users']
                         for user in users:
-                            ciem_data.append({
-                                "Resource": user['UserName'], "Type": "IAM User", "Severity": "High", 
-                                "Issue": "MFA Disabled", "Framework": "SOC 2", 
-                                "Remediation": "Enforce MFA Policy"
-                            })
+                            u_name = user['UserName']
+                            mfa = iam.list_mfa_devices(UserName=u_name)['MFADevices']
+                            if not mfa:
+                                ciem_data.append({
+                                    "Resource": u_name, "Type": "IAM User", "Severity": "High", 
+                                    "Issue": "MFA Disabled", "Framework": "SOC 2", 
+                                    "Remediation": "Enforce MFA Policy"
+                                })
+                            keys = iam.list_access_keys(UserName=u_name)['AccessKeyMetadata']
+                            for k in keys:
+                                if k['Status'] == 'Active':
+                                    ciem_data.append({"Resource": f"{u_name} (Key: {k['AccessKeyId']})", "Type": "IAM Key", "Severity": "Low", "Issue": "Active Access Key", "Framework": "CIS", "Remediation": "Rotate Keys every 90 days"})
+
                     except Exception as e:
                         st.error(f"Scan Error on {account_name}: {e}")
                 
@@ -296,7 +335,6 @@ else:
                         st.success(f"Azure Account '{account_id}' saved!")
         
         with col_right:
-            # --- START SCAN SCHEDULER SECTION ---
             st.subheader("🗓️ Scan Scheduler")
             st.caption("Automatically refresh security data.")
             
@@ -304,7 +342,6 @@ else:
                                          ["Every 1 Hour", "Every 6 Hours", "Every 12 Hours", "Daily (24h)"], 
                                          index=0)
             
-            # Map selection to hours
             interval_hours = {"Every 1 Hour": 1, "Every 6 Hours": 6, "Every 12 Hours": 12, "Daily (24h)": 24}[scan_interval]
 
             if not st.session_state['schedule_enabled']:
@@ -319,7 +356,6 @@ else:
                     st.session_state['schedule_enabled'] = False
                     st.session_state['next_scan_time'] = None
                     st.rerun()
-            # --- END SCAN SCHEDULER SECTION ---
 
             st.divider()
             st.subheader("📋 Saved Integrations")
@@ -373,7 +409,6 @@ else:
                     elif nu and np:
                         new_entry = {"Username": nu, "Password": np, "Role": nr}
                         st.session_state['user_db'] = pd.concat([st.session_state['user_db'], pd.DataFrame([new_entry])], ignore_index=True)
-                        # SAVE TO CSV
                         st.session_state['user_db'].to_csv("users.csv", index=False)
                         st.success(f"User {nu} created and saved!")
                         st.rerun()
@@ -394,13 +429,11 @@ else:
                     if new_p_edit:
                         if validate_password(new_p_edit):
                             st.session_state['user_db'].at[idx, 'Password'] = new_p_edit
-                            # SAVE TO CSV
                             st.session_state['user_db'].to_csv("users.csv", index=False)
                             st.success(f"Credentials for {user_to_edit} updated and saved!")
                             st.rerun()
                         else: st.error("New password does not meet requirements.")
                     else:
-                        # SAVE TO CSV
                         st.session_state['user_db'].to_csv("users.csv", index=False)
                         st.success(f"Role for {user_to_edit} updated and saved!")
                         st.rerun()
@@ -412,7 +445,6 @@ else:
                     if user_to_del == "admin": st.error("Cannot delete root account.")
                     else:
                         st.session_state['user_db'] = st.session_state['user_db'][st.session_state['user_db']['Username'] != user_to_del]
-                        # SAVE TO CSV
                         st.session_state['user_db'].to_csv("users.csv", index=False)
                         st.warning(f"User {user_to_del} removed and database updated.")
                         st.rerun()
@@ -421,6 +453,5 @@ else:
     if st.session_state['schedule_enabled'] and st.session_state['next_scan_time']:
         if datetime.datetime.now() >= st.session_state['next_scan_time']:
             run_real_time_scan("Scheduled")
-            # Set next scan time based on the selected interval
             st.session_state['next_scan_time'] = datetime.datetime.now() + datetime.timedelta(hours=interval_hours)
             st.rerun()
