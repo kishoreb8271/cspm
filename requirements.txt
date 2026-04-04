@@ -5,3 +5,4 @@ rich
 pyyaml
 google-genai
 Pillow
+python-nmap
