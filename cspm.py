@@ -57,13 +57,19 @@ st.markdown(f"""
         border-radius: 4px;
     }}
 
-    /* Logo Styling */
+    /* Improved Logo Styling */
+    .brand-container {{
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        padding: 20px 0;
+    }}
     .brand-logo {{
-        display: block;
-        margin-left: auto;
-        margin-right: auto;
-        width: 300px;
-        padding-bottom: 20px;
+        width: 350px;
+        transition: transform 0.3s ease;
+    }}
+    .brand-logo:hover {{
+        transform: scale(1.02);
     }}
     </style>
     """, unsafe_allow_html=True)
@@ -91,23 +97,23 @@ def validate_password(password):
     return re.match(pattern, password)
 
 def login_page():
-    # Adding Logo to Login Page
-    st.image(LOGO_URL, width=400) 
-    st.markdown("<h2 style='text-align: center; color: white;'>🔐 Console Login</h2>", unsafe_allow_html=True)
-    with st.container():
-        col1, col2, col3 = st.columns([1,2,1])
-        with col2:
-            user = st.text_input("Username")
-            pw = st.text_input("Password", type="password")
-            if st.button("Login"):
-                db = st.session_state['user_db']
-                match = db[(db['Username'] == user) & (db['Password'] == pw)]
-                if not match.empty:
-                    st.session_state['authenticated'] = True
-                    st.session_state['user_role'] = match.iloc[0]['Role']
-                    st.rerun()
-                else:
-                    st.error("Invalid credentials")
+    # Centered Logo for Login Page using columns for better layout control
+    col1, col2, col3 = st.columns([1, 1.5, 1])
+    with col2:
+        st.image(LOGO_URL, use_container_width=True)
+        st.markdown("<h2 style='text-align: center; color: white; padding-top: 0;'>🔐 Console Login</h2>", unsafe_allow_html=True)
+        
+        user = st.text_input("Username")
+        pw = st.text_input("Password", type="password")
+        if st.button("Login"):
+            db = st.session_state['user_db']
+            match = db[(db['Username'] == user) & (db['Password'] == pw)]
+            if not match.empty:
+                st.session_state['authenticated'] = True
+                st.session_state['user_role'] = match.iloc[0]['Role']
+                st.rerun()
+            else:
+                st.error("Invalid credentials")
 
 # --- START APP LOGIC ---
 if not st.session_state['authenticated']:
@@ -120,9 +126,9 @@ else:
         st.session_state['authenticated'] = False
         st.rerun()
 
-    # Main Title with Branding
-    st.markdown(f'<img src="{LOGO_URL}" class="brand-logo">', unsafe_allow_html=True)
-    st.title("🛡️ VantageGuard Security Manager")
+    # Main Header Branding - Centered effectively
+    st.markdown(f'<div class="brand-container"><img src="{LOGO_URL}" class="brand-logo"></div>', unsafe_allow_html=True)
+    st.markdown("<h1 style='text-align: center; color: white;'>🛡️ VantageGuard Security Manager</h1>", unsafe_allow_html=True)
 
     # --- SESSION STATE INITIALIZATION ---
     if 'integrations' not in st.session_state:
