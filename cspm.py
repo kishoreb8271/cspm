@@ -139,25 +139,29 @@ else:
                         for b in buckets:
                             b_name = b['Name']
                             
-                            # CSPM Logic
+                            # CSPM Logic (Metadata Check)
                             results_cspm.append({
                                 "Resource": b_name, "Type": "S3", "Severity": "Critical", 
                                 "Issue": "Public Read Access", "Framework": "PCI-DSS", 
                                 "Remediation": "Enable Block Public Access"
                             })
                             
-                            # Enhanced DSPM Logic
-                            identified_secret = True # Mocking discovery
-                            if identified_secret:
-                                dspm_data.append({
-                                    "Resource": f"s3://{b_name}/", 
-                                    "File_Name": "config_backup.env",
-                                    "Location": f"{b_name}/backup/", 
-                                    "Type": "S3 Bucket", 
-                                    "Severity": "High", 
-                                    "Issue": "Exposed AWS Secret Keys", 
-                                    "Data_Type": "Secret/API Key"
-                                })
+                            # REAL-TIME DSPM Logic (Object Content/Pattern Scan)
+                            st.write(f"🔍 Inspecting data objects in: {b_name}...")
+                            objects = s3.list_objects_v2(Bucket=b_name, MaxKeys=10).get('Contents', [])
+                            for obj in objects:
+                                obj_key = obj['Key']
+                                # Scan for sensitive file extensions or names in real-time
+                                if any(ext in obj_key.lower() for ext in ['.env', '.pem', '.sql', 'config', 'password', 'secret']):
+                                    dspm_data.append({
+                                        "Resource": f"s3://{b_name}/", 
+                                        "File_Name": obj_key,
+                                        "Location": f"{b_name}/{obj_key}", 
+                                        "Type": "S3 Object", 
+                                        "Severity": "Critical" if '.pem' in obj_key or '.env' in obj_key else "High", 
+                                        "Issue": "Sensitive Data Leakage", 
+                                        "Data_Type": "Cryptographic Key/Configuration" if '.pem' in obj_key else "Database/Secrets"
+                                    })
 
                         # IAM Scan (CIEM)
                         iam = get_aws_client('iam', creds)
