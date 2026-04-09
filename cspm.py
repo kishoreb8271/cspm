@@ -175,7 +175,7 @@ else:
                                 config = p_access['PublicAccessBlockConfiguration']
                                 is_public = not all([config['BlockPublicAcls'], config['IgnorePublicAcls'], config['BlockPublicPolicy'], config['RestrictPublicBuckets']])
                             except:
-                                is_public = True # If no config exists, it's potentially public
+                                is_public = True 
 
                             if is_public:
                                 results_cspm.append({
@@ -184,23 +184,38 @@ else:
                                     "Remediation": "Enable All Block Public Access settings"
                                 })
                                 
-                                # Simulated DSPM Finding if bucket is public (Checking for sensitive file names)
-                                dspm_data.append({
-                                    "Resource": f"s3://{b_name}/", 
-                                    "File_Name": "Detected via Scan",
-                                    "Location": f"{b_name}/", 
-                                    "Type": "S3 Bucket", 
-                                    "Severity": "High", 
-                                    "Issue": "Sensitive Data in Public Bucket", 
-                                    "Data_Type": "PII/Secrets"
-                                })
+                                # --- ENHANCED DSPM SCAN (File Discovery) ---
+                                try:
+                                    objects = s3.list_objects_v2(Bucket=b_name, MaxKeys=50)
+                                    if 'Contents' in objects:
+                                        for obj in objects['Contents']:
+                                            file_key = obj['Key']
+                                            file_ext = file_key.split('.')[-1].lower()
+                                            
+                                            # Identify Data Type based on extension/naming
+                                            data_type = "Sensitive Document"
+                                            if file_ext in ['csv', 'xlsx', 'sql', 'json']:
+                                                data_type = "PII/Database Export"
+                                            elif any(secret in file_key.lower() for secret in ['key', 'pem', 'config', 'secret', 'cred']):
+                                                data_type = "Secrets/Credentials"
+
+                                            dspm_data.append({
+                                                "Resource": b_name, 
+                                                "File_Name": file_key,
+                                                "Location": f"s3://{b_name}/{file_key}", 
+                                                "Type": f".{file_ext} File", 
+                                                "Severity": "High", 
+                                                "Issue": "Sensitive File exposed in Public Bucket", 
+                                                "Data_Type": data_type
+                                            })
+                                except Exception as e:
+                                    st.error(f"Error listing objects in {b_name}: {e}")
 
                         # --- REAL-TIME IAM SCAN (CIEM) ---
                         iam = get_aws_client('iam', creds)
                         users = iam.list_users()['Users']
                         for user in users:
                             u_name = user['UserName']
-                            # Check MFA Status
                             mfa = iam.list_mfa_devices(UserName=u_name)['MFADevices']
                             if not mfa:
                                 ciem_data.append({
@@ -314,7 +329,6 @@ else:
                                          ["Every 1 Hour", "Every 6 Hours", "Every 12 Hours", "Daily (24h)"], 
                                          index=0)
             
-            # Map selection to hours
             interval_hours = {"Every 1 Hour": 1, "Every 6 Hours": 6, "Every 12 Hours": 12, "Daily (24h)": 24}[scan_interval]
 
             if not st.session_state['schedule_enabled']:
@@ -329,7 +343,6 @@ else:
                     st.session_state['schedule_enabled'] = False
                     st.session_state['next_scan_time'] = None
                     st.rerun()
-            # --- END SCAN SCHEDULER SECTION ---
 
             st.divider()
             st.subheader("📋 Saved Integrations")
@@ -358,19 +371,16 @@ else:
     with active_tab[6]:
         st.header("🛡️ Data Security Posture Management")
         
-        # --- Real-Time Scan Logic for DSPM ---
         col_scan, col_status = st.columns([1, 1])
         with col_scan:
             if st.button("Manual DSPM Scan", type="secondary"):
                 run_real_time_scan("DSPM")
-            
             rt_toggle = st.toggle("Enable Real-Time Data Discovery", value=False, help="Continuously monitors S3 for sensitive data leaks.")
             
         with col_status:
             if rt_toggle:
                 st.markdown("🟢 **Status:** Monitoring Live Data Streams...")
                 with st.spinner("Analyzing data patterns..."):
-                    # Simulating a real-time hit
                     time.sleep(0.5)
             else:
                 st.markdown("⚪ **Status:** Real-time monitoring paused.")
@@ -391,14 +401,14 @@ else:
             with st.expander("➕ Create New User", expanded=False):
                 c1, c2, c3 = st.columns(3)
                 nu = c1.text_input("New Username", key="new_u")
-                np = c2.text_input("New Password", type="password", help="Must be 8+ chars, 1 Upper, 1 Lower, 1 Number, 1 Special", key="new_p")
+                np = c2.text_input("New Password", type="password", key="new_p")
                 nr = c3.selectbox("Role", ["Viewer", "Admin"], key="new_r")
                 
                 if st.button("Register User"):
                     if nu in st.session_state['user_db']['Username'].values:
                         st.error("User already exists!")
                     elif not validate_password(np):
-                        st.error("Password too weak! Needs 8+ characters, Upper, Lower, Number, and Special character.")
+                        st.error("Password too weak!")
                     elif nu and np:
                         new_entry = {"Username": nu, "Password": np, "Role": nr}
                         st.session_state['user_db'] = pd.concat([st.session_state['user_db'], pd.DataFrame([new_entry])], ignore_index=True)
@@ -442,6 +452,5 @@ else:
     if st.session_state['schedule_enabled'] and st.session_state['next_scan_time']:
         if datetime.datetime.now() >= st.session_state['next_scan_time']:
             run_real_time_scan("Scheduled")
-            # Set next scan time based on the selected interval
             st.session_state['next_scan_time'] = datetime.datetime.now() + datetime.timedelta(hours=interval_hours)
             st.rerun()
