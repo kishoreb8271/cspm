@@ -105,7 +105,7 @@ else:
         st.session_state['authenticated'] = False
         st.rerun()
 
-    st.title("🛡️ VantageGuard Security Manager")
+    st.title("🛡️ Cloud Security & Entitlement Manager")
 
     # --- SESSION STATE INITIALIZATION ---
     if 'integrations' not in st.session_state:
