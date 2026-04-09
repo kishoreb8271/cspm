@@ -8,28 +8,35 @@ import json
 import re
 from PIL import Image
 
+# --- LOGO CONFIGURATION ---
+LOGO_URL = "https://github.com/kishoreb8271/cspm/blob/main/VantageGuard.png?raw=true"
+
 # Page Configuration
 st.set_page_config(page_title="Cloud Security & Entitlement Manager", layout="wide")
 
 # --- CUSTOM CSS ---
-st.markdown("""
+st.markdown(f"""
     <style>
+    /* Global Background */
+    .stApp {{
+        background-color: #0b1026; /* Dark Navy branding */
+    }}
     /* Global Button Styling */
-    div.stButton > button {
+    div.stButton > button {{
         width: 100%;
         height: 60px;
         border-radius: 5px;
         border: 1px solid #444;
-    }
+    }}
     /* Metric Card Styling */
-    [data-testid="stMetric"] {
+    [data-testid="stMetric"] {{
         background-color: #1e2129;
         padding: 15px;
         border-radius: 10px;
         border: 1px solid #333;
-    }
+    }}
     /* CNAPP Dashboard Styling */
-    .cnapp-card {
+    .cnapp-card {{
         background-color: #ff4b4b;
         color: white;
         padding: 20px;
@@ -37,18 +44,27 @@ st.markdown("""
         text-align: center;
         margin-bottom: 10px;
         box-shadow: 2px 2px 10px rgba(0,0,0,0.1);
-    }
-    .cnapp-card h2 { margin: 0; font-size: 2rem; color: white; }
-    .cnapp-card p { margin: 0; font-size: 0.8rem; font-weight: bold; text-transform: uppercase; }
+    }}
+    .cnapp-card h2 {{ margin: 0; font-size: 2rem; color: white; }}
+    .cnapp-card p {{ margin: 0; font-size: 0.8rem; font-weight: bold; text-transform: uppercase; }}
     
-    .insight-box {
+    .insight-box {{
         background-color: #1e2129;
         border-left: 5px solid #ff4b4b;
         padding: 12px;
         margin-bottom: 10px;
         font-size: 0.85rem;
         border-radius: 4px;
-    }
+    }}
+
+    /* Logo Styling */
+    .brand-logo {{
+        display: block;
+        margin-left: auto;
+        margin-right: auto;
+        width: 300px;
+        padding-bottom: 20px;
+    }}
     </style>
     """, unsafe_allow_html=True)
 
@@ -57,14 +73,27 @@ if 'authenticated' not in st.session_state:
     st.session_state['authenticated'] = False
 if 'user_role' not in st.session_state:
     st.session_state['user_role'] = None
+
+# PERSISTENT STORAGE LOGIC: Load users from CSV or set default
 if 'user_db' not in st.session_state:
-    # Default Admin User
-    st.session_state['user_db'] = pd.DataFrame([
-        {"Username": "admin", "Password": "password123", "Role": "Admin"}
-    ])
+    try:
+        st.session_state['user_db'] = pd.read_csv("users.csv")
+    except FileNotFoundError:
+        # Default Admin User if no file exists
+        st.session_state['user_db'] = pd.DataFrame([
+            {"Username": "admin", "Password": "AdminPassword@123", "Role": "Admin"}
+        ])
+        st.session_state['user_db'].to_csv("users.csv", index=False)
+
+def validate_password(password):
+    """Regex for complexity: Min 8 chars, 1 Upper, 1 Lower, 1 Number, 1 Special Char"""
+    pattern = r"^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$"
+    return re.match(pattern, password)
 
 def login_page():
-    st.markdown("<h2 style='text-align: center;'>🔐 Console Login</h2>", unsafe_allow_html=True)
+    # Adding Logo to Login Page
+    st.image(LOGO_URL, width=400) 
+    st.markdown("<h2 style='text-align: center; color: white;'>🔐 Console Login</h2>", unsafe_allow_html=True)
     with st.container():
         col1, col2, col3 = st.columns([1,2,1])
         with col2:
@@ -84,13 +113,16 @@ def login_page():
 if not st.session_state['authenticated']:
     login_page()
 else:
-    # Sidebar Logout and User Info
+    # Sidebar Logout, Branding and User Info
+    st.sidebar.image(LOGO_URL, use_container_width=True)
     st.sidebar.success(f"Logged in as: {st.session_state['user_role']}")
     if st.sidebar.button("Logout"):
         st.session_state['authenticated'] = False
         st.rerun()
 
-    st.title("🛡️ Cloud Security & Entitlement Manager")
+    # Main Title with Branding
+    st.markdown(f'<img src="{LOGO_URL}" class="brand-logo">', unsafe_allow_html=True)
+    st.title("🛡️ VantageGuard Security Manager")
 
     # --- SESSION STATE INITIALIZATION ---
     if 'integrations' not in st.session_state:
@@ -105,8 +137,12 @@ else:
         st.session_state['compliance_results'] = pd.DataFrame()
     if 'last_scan_time' not in st.session_state:
         st.session_state['last_scan_time'] = "Never"
+    
+    # NEW: Scheduler State
     if 'schedule_enabled' not in st.session_state:
         st.session_state['schedule_enabled'] = False
+    if 'next_scan_time' not in st.session_state:
+        st.session_state['next_scan_time'] = None
 
     # --- HELPER FUNCTIONS ---
     def get_aws_client(service, creds):
@@ -133,21 +169,16 @@ else:
                 
                 if provider == "AWS":
                     try:
-                        # S3 Scan (CSPM/DSPM)
                         s3 = get_aws_client('s3', creds)
                         buckets = s3.list_buckets()['Buckets']
                         for b in buckets:
                             b_name = b['Name']
-                            
-                            # CSPM Logic
                             results_cspm.append({
                                 "Resource": b_name, "Type": "S3", "Severity": "Critical", 
                                 "Issue": "Public Read Access", "Framework": "PCI-DSS", 
                                 "Remediation": "Enable Block Public Access"
                             })
-                            
-                            # Enhanced DSPM Logic
-                            identified_secret = True # Mocking discovery
+                            identified_secret = True 
                             if identified_secret:
                                 dspm_data.append({
                                     "Resource": f"s3://{b_name}/", 
@@ -159,7 +190,6 @@ else:
                                     "Data_Type": "Secret/API Key"
                                 })
 
-                        # IAM Scan (CIEM)
                         iam = get_aws_client('iam', creds)
                         users = iam.list_users()['Users']
                         for user in users:
@@ -174,12 +204,10 @@ else:
                 elif provider == "Azure":
                     st.info(f"Azure API Scan initiated for {account_name} (Mocked)")
 
-            # Update Session Data
             st.session_state['cspm_results'] = pd.DataFrame(results_cspm)
             st.session_state['ciem_results'] = pd.DataFrame(ciem_data)
             st.session_state['dspm_results'] = pd.DataFrame(dspm_data)
             
-            # Compliance Summary Logic
             st.session_state['compliance_results'] = pd.DataFrame([
                 {"Framework": "CIS Foundations", "Passed": 45, "Failed": len(results_cspm), "Status": "Review Required"},
                 {"Framework": "SOC 2 Type II", "Passed": 154, "Failed": len(ciem_data), "Status": "Monitoring"},
@@ -195,111 +223,105 @@ else:
         "⚖️ Compliance & Governance", "🔍 CSPM", "🔑 CIEM", "🛡️ DSPM", "📋 Scan Results"
     ]
     
-    # Add Admin Tab only if user is Admin
     if st.session_state['user_role'] == "Admin":
         tabs_list.append("⚙️ Admin: Access Management")
 
     active_tab = st.tabs(tabs_list)
 
-    # --- TAB 0: AI CNAPP DASHBOARD ---
     with active_tab[0]:
         st.header("🤖 AI-Powered CNAPP Risk Insights")
-        
         total_cspm = len(st.session_state['cspm_results'])
         total_ciem = len(st.session_state['ciem_results'])
         total_dspm = len(st.session_state['dspm_results'])
         total_comp = len(st.session_state['compliance_results'])
-        
         r1, r2, r3, r4, r5 = st.columns(5)
         with r1: st.markdown(f'<div class="cnapp-card"><p>Toxic Paths</p><h2>{total_cspm}</h2></div>', unsafe_allow_html=True)
         with r2: st.markdown(f'<div class="cnapp-card"><p>Misconfigs</p><h2>{total_cspm}</h2></div>', unsafe_allow_html=True)
         with r3: st.markdown(f'<div class="cnapp-card"><p>Identity Risks</p><h2>{total_ciem}</h2></div>', unsafe_allow_html=True)
         with r4: st.markdown(f'<div class="cnapp-card"><p>Data Vulns</p><h2>{total_dspm}</h2></div>', unsafe_allow_html=True)
         with r5: st.markdown(f'<div class="cnapp-card"><p>Compliance Gaps</p><h2>{total_comp}</h2></div>', unsafe_allow_html=True)
-
         st.divider()
         c_left, c_right = st.columns([2, 1])
-
         with c_left:
             st.subheader("🔥 AI-Prioritized Findings")
             if not st.session_state['cspm_results'].empty or not st.session_state['ciem_results'].empty:
                 ai_view = pd.concat([st.session_state['cspm_results'], st.session_state['ciem_results']], ignore_index=True)
                 st.dataframe(ai_view[['Resource', 'Issue', 'Severity', 'Type']], use_container_width=True)
-            else:
-                st.info("No scan data available. Metrics are currently at zero.")
-            
+            else: st.info("No scan data available.")
             st.subheader("TruRisk Insights Trend")
-            chart_data = pd.DataFrame({
-                "Day": ["06/10", "07/10", "08/10", "09/10", "Today"],
-                "Insights": [10, 25, 40, 65, (total_cspm + total_ciem + total_dspm)]
-            })
+            chart_data = pd.DataFrame({"Day": ["06/10", "07/10", "08/10", "09/10", "Today"], "Insights": [10, 25, 40, 65, (total_cspm + total_ciem + total_dspm)]})
             st.line_chart(chart_data, x="Day", y="Insights")
-
         with c_right:
             st.subheader("🎯 Top Insights")
             if not st.session_state['cspm_results'].empty:
                 for _, row in st.session_state['cspm_results'].head(5).iterrows():
                     st.markdown(f'<div class="insight-box">⚠️ <b>{row["Resource"]}</b><br>{row["Issue"]}</div>', unsafe_allow_html=True)
-            else:
-                st.write("Awaiting scan results to generate top insights...")
+            else: st.write("Awaiting scan results...")
 
-    # --- TAB 1: EXECUTIVE DASHBOARD ---
     with active_tab[1]:
         st.header("📊 Cloud Security Posture Overview")
         st.caption(f"⏱️ Last Periodic Scan: {st.session_state['last_scan_time']}")
-        
         all_findings = pd.concat([st.session_state['cspm_results'], st.session_state['ciem_results'], st.session_state['dspm_results']], ignore_index=True)
-        
         crit = len(all_findings[all_findings['Severity'] == 'Critical']) if not all_findings.empty else 0
         high = len(all_findings[all_findings['Severity'] == 'High']) if not all_findings.empty else 0
-        
         m1, m2, m3, m4 = st.columns(4)
-        with m1: st.metric("Critical Issues", crit, delta="-2" if crit > 0 else "0")
-        with m2: st.metric("High Risk", high, delta="-5" if high > 0 else "0")
+        with m1: st.metric("Critical Issues", crit)
+        with m2: st.metric("High Risk", high)
         with m3: st.metric("Connected Tenants", len(st.session_state['integrations']))
         with m4: st.metric("Total Findings", len(all_findings))
-        
         st.divider()
-        st.subheader("Asset Risk Distribution")
-        if not all_findings.empty:
-            st.bar_chart(all_findings['Severity'].value_counts())
+        if not all_findings.empty: st.bar_chart(all_findings['Severity'].value_counts())
 
-    # --- TAB 2: CLOUD INTEGRATION ---
     with active_tab[2]:
         st.header("🔌 Connectivity & Automation")
         col_left, col_right = st.columns(2)
-        
         with col_left:
             st.subheader("Connect New Cloud Provider")
             provider_choice = st.selectbox("Select Provider", ["AWS", "Azure", "GCP"])
-            account_id = st.text_input("Account Name / ID (e.g. Prod-Environment)")
-            
+            account_id = st.text_input("Account Name / ID")
             if provider_choice == "AWS":
                 key = st.text_input("AWS Access Key ID", type="password")
                 secret = st.text_input("AWS Secret Access Key", type="password")
                 region = st.selectbox("Region", ["us-east-1", "us-west-2", "eu-central-1"])
-                if st.button(f"Add {provider_choice} Connection"):
+                if st.button("Add AWS Connection"):
                     if account_id and key and secret:
-                        st.session_state['integrations'][account_id] = {
-                            'provider': 'AWS', 'key': key, 'secret': secret, 'region': region
-                        }
+                        st.session_state['integrations'][account_id] = {'provider': 'AWS', 'key': key, 'secret': secret, 'region': region}
                         st.success(f"AWS Account '{account_id}' saved!")
-                    else:
-                        st.error("Please fill all AWS fields.")
-                        
             elif provider_choice == "Azure":
                 client_id = st.text_input("Client ID", type="password")
                 tenant_id = st.text_input("Tenant ID", type="password")
-                if st.button(f"Add {provider_choice} Connection"):
+                if st.button("Add Azure Connection"):
                     if account_id and client_id and tenant_id:
-                        st.session_state['integrations'][account_id] = {
-                            'provider': 'Azure', 'client_id': client_id, 'tenant_id': tenant_id
-                        }
+                        st.session_state['integrations'][account_id] = {'provider': 'Azure', 'client_id': client_id, 'tenant_id': tenant_id}
                         st.success(f"Azure Account '{account_id}' saved!")
-                    else:
-                        st.error("Please fill all Azure fields.")
-
+        
         with col_right:
+            # --- START SCAN SCHEDULER SECTION ---
+            st.subheader("🗓️ Scan Scheduler")
+            st.caption("Automatically refresh security data.")
+            
+            scan_interval = st.selectbox("Scan Interval", 
+                                         ["Every 1 Hour", "Every 6 Hours", "Every 12 Hours", "Daily (24h)"], 
+                                         index=0)
+            
+            # Map selection to hours
+            interval_hours = {"Every 1 Hour": 1, "Every 6 Hours": 6, "Every 12 Hours": 12, "Daily (24h)": 24}[scan_interval]
+
+            if not st.session_state['schedule_enabled']:
+                if st.button("Enable Scheduler", type="primary"):
+                    st.session_state['schedule_enabled'] = True
+                    st.session_state['next_scan_time'] = datetime.datetime.now() + datetime.timedelta(hours=interval_hours)
+                    st.rerun()
+            else:
+                st.success(f"Periodic Scanning is ACTIVE ({scan_interval})")
+                st.info(f"Next scan scheduled for: {st.session_state['next_scan_time'].strftime('%Y-%m-%d %H:%M:%S')}")
+                if st.button("Disable Scheduler"):
+                    st.session_state['schedule_enabled'] = False
+                    st.session_state['next_scan_time'] = None
+                    st.rerun()
+            # --- END SCAN SCHEDULER SECTION ---
+
+            st.divider()
             st.subheader("📋 Saved Integrations")
             if st.session_state['integrations']:
                 integrations_df = pd.DataFrame.from_dict(st.session_state['integrations'], orient='index')
@@ -307,19 +329,12 @@ else:
                 if st.button("Clear All Connections"):
                     st.session_state['integrations'] = {}
                     st.rerun()
-            else:
-                st.info("No accounts connected yet.")
 
-    # --- TAB 3: COMPLIANCE & GOVERNANCE ---
     with active_tab[3]:
         st.header("⚖️ Compliance & Governance")
-        if not st.session_state['compliance_results'].empty:
-            st.subheader("Regulatory Compliance Progress")
-            st.table(st.session_state['compliance_results'])
-        else:
-            st.info("No compliance data available.")
+        if not st.session_state['compliance_results'].empty: st.table(st.session_state['compliance_results'])
+        else: st.info("No compliance data available.")
 
-    # --- FUNCTIONAL TABS ---
     with active_tab[4]:
         st.header("🔍 Infrastructure Scan")
         if st.button("⚡ Run CSPM Scan"): run_real_time_scan("CSPM")
@@ -338,29 +353,74 @@ else:
     with active_tab[7]:
         st.header("📋 Master Remediation Table")
         final_df = pd.concat([st.session_state['cspm_results'], st.session_state['ciem_results'], st.session_state['dspm_results']], ignore_index=True)
-        if not final_df.empty:
-            st.dataframe(final_df, use_container_width=True, hide_index=True)
-        else:
-            st.info("No findings to display.")
+        if not final_df.empty: st.dataframe(final_df, use_container_width=True, hide_index=True)
+        else: st.info("No findings to display.")
 
-    # --- TAB 8: ACCESS MANAGEMENT (ADMIN ONLY) ---
     if st.session_state['user_role'] == "Admin":
         with active_tab[8]:
-            st.header("⚙️ User Access Management")
-            am_l, am_r = st.columns(2)
-            
-            with am_l:
-                st.subheader("Create New User")
-                new_user = st.text_input("New Username")
-                new_pass = st.text_input("New Password", type="password")
-                new_role = st.selectbox("Role", ["Viewer", "Admin"])
-                if st.button("Add User"):
-                    if new_user and new_pass:
-                        new_row = {"Username": new_user, "Password": new_pass, "Role": new_role}
-                        st.session_state['user_db'] = pd.concat([st.session_state['user_db'], pd.DataFrame([new_row])], ignore_index=True)
-                        st.success(f"User {new_user} added successfully!")
+            st.header("⚙️ User Access Management Console")
+            with st.expander("➕ Create New User", expanded=False):
+                c1, c2, c3 = st.columns(3)
+                nu = c1.text_input("New Username", key="new_u")
+                np = c2.text_input("New Password", type="password", help="Must be 8+ chars, 1 Upper, 1 Lower, 1 Number, 1 Special", key="new_p")
+                nr = c3.selectbox("Role", ["Viewer", "Admin"], key="new_r")
+                
+                if st.button("Register User"):
+                    if nu in st.session_state['user_db']['Username'].values:
+                        st.error("User already exists!")
+                    elif not validate_password(np):
+                        st.error("Password too weak! Needs 8+ characters, Upper, Lower, Number, and Special character.")
+                    elif nu and np:
+                        new_entry = {"Username": nu, "Password": np, "Role": nr}
+                        st.session_state['user_db'] = pd.concat([st.session_state['user_db'], pd.DataFrame([new_entry])], ignore_index=True)
+                        # SAVE TO CSV
+                        st.session_state['user_db'].to_csv("users.csv", index=False)
+                        st.success(f"User {nu} created and saved!")
                         st.rerun()
-            
-            with am_r:
-                st.subheader("Existing Console Users")
-                st.dataframe(st.session_state['user_db'][['Username', 'Role']], use_container_width=True)
+
+            st.divider()
+            st.subheader("👥 Existing Users & Permissions")
+            st.dataframe(st.session_state['user_db'][['Username', 'Role']], use_container_width=True)
+            edit_col, del_col = st.columns(2)
+            with edit_col:
+                st.markdown("### ✏️ Edit User")
+                user_to_edit = st.selectbox("Select User to Modify", st.session_state['user_db']['Username'].tolist())
+                current_data = st.session_state['user_db'][st.session_state['user_db']['Username'] == user_to_edit].iloc[0]
+                new_p_edit = st.text_input("Change Password", placeholder="Leave blank to keep current", type="password")
+                new_r_edit = st.selectbox("Change Role", ["Viewer", "Admin"], index=0 if current_data['Role'] == "Viewer" else 1)
+                if st.button("Update User Permissions"):
+                    idx = st.session_state['user_db'].index[st.session_state['user_db']['Username'] == user_to_edit].tolist()[0]
+                    st.session_state['user_db'].at[idx, 'Role'] = new_r_edit
+                    if new_p_edit:
+                        if validate_password(new_p_edit):
+                            st.session_state['user_db'].at[idx, 'Password'] = new_p_edit
+                            # SAVE TO CSV
+                            st.session_state['user_db'].to_csv("users.csv", index=False)
+                            st.success(f"Credentials for {user_to_edit} updated and saved!")
+                            st.rerun()
+                        else: st.error("New password does not meet requirements.")
+                    else:
+                        # SAVE TO CSV
+                        st.session_state['user_db'].to_csv("users.csv", index=False)
+                        st.success(f"Role for {user_to_edit} updated and saved!")
+                        st.rerun()
+
+            with del_col:
+                st.markdown("### 🗑️ Delete User")
+                user_to_del = st.selectbox("Select User to Remove", st.session_state['user_db']['Username'].tolist())
+                if st.button("Confirm Deletion", type="primary"):
+                    if user_to_del == "admin": st.error("Cannot delete root account.")
+                    else:
+                        st.session_state['user_db'] = st.session_state['user_db'][st.session_state['user_db']['Username'] != user_to_del]
+                        # SAVE TO CSV
+                        st.session_state['user_db'].to_csv("users.csv", index=False)
+                        st.warning(f"User {user_to_del} removed and database updated.")
+                        st.rerun()
+
+    # --- BACKGROUND SCHEDULER EXECUTION ---
+    if st.session_state['schedule_enabled'] and st.session_state['next_scan_time']:
+        if datetime.datetime.now() >= st.session_state['next_scan_time']:
+            run_real_time_scan("Scheduled")
+            # Set next scan time based on the selected interval
+            st.session_state['next_scan_time'] = datetime.datetime.now() + datetime.timedelta(hours=interval_hours)
+            st.rerun()
