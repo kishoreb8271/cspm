@@ -60,13 +60,8 @@ if 'user_role' not in st.session_state:
 if 'user_db' not in st.session_state:
     # Default Admin User
     st.session_state['user_db'] = pd.DataFrame([
-        {"Username": "admin", "Password": "AdminPassword@123", "Role": "Admin"}
+        {"Username": "admin", "Password": "password123", "Role": "Admin"}
     ])
-
-def validate_password(password):
-    """Regex for complexity: Min 8 chars, 1 Upper, 1 Lower, 1 Number, 1 Special Char"""
-    pattern = r"^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])[A-Za-z\d@$!%*?&]{8,}$"
-    return re.match(pattern, password)
 
 def login_page():
     st.markdown("<h2 style='text-align: center;'>🔐 Console Login</h2>", unsafe_allow_html=True)
@@ -138,16 +133,21 @@ else:
                 
                 if provider == "AWS":
                     try:
+                        # S3 Scan (CSPM/DSPM)
                         s3 = get_aws_client('s3', creds)
                         buckets = s3.list_buckets()['Buckets']
                         for b in buckets:
                             b_name = b['Name']
+                            
+                            # CSPM Logic
                             results_cspm.append({
                                 "Resource": b_name, "Type": "S3", "Severity": "Critical", 
                                 "Issue": "Public Read Access", "Framework": "PCI-DSS", 
                                 "Remediation": "Enable Block Public Access"
                             })
-                            identified_secret = True 
+                            
+                            # Enhanced DSPM Logic
+                            identified_secret = True # Mocking discovery
                             if identified_secret:
                                 dspm_data.append({
                                     "Resource": f"s3://{b_name}/", 
@@ -159,6 +159,7 @@ else:
                                     "Data_Type": "Secret/API Key"
                                 })
 
+                        # IAM Scan (CIEM)
                         iam = get_aws_client('iam', creds)
                         users = iam.list_users()['Users']
                         for user in users:
@@ -173,10 +174,12 @@ else:
                 elif provider == "Azure":
                     st.info(f"Azure API Scan initiated for {account_name} (Mocked)")
 
+            # Update Session Data
             st.session_state['cspm_results'] = pd.DataFrame(results_cspm)
             st.session_state['ciem_results'] = pd.DataFrame(ciem_data)
             st.session_state['dspm_results'] = pd.DataFrame(dspm_data)
             
+            # Compliance Summary Logic
             st.session_state['compliance_results'] = pd.DataFrame([
                 {"Framework": "CIS Foundations", "Passed": 45, "Failed": len(results_cspm), "Status": "Review Required"},
                 {"Framework": "SOC 2 Type II", "Passed": 154, "Failed": len(ciem_data), "Status": "Monitoring"},
@@ -192,78 +195,110 @@ else:
         "⚖️ Compliance & Governance", "🔍 CSPM", "🔑 CIEM", "🛡️ DSPM", "📋 Scan Results"
     ]
     
+    # Add Admin Tab only if user is Admin
     if st.session_state['user_role'] == "Admin":
         tabs_list.append("⚙️ Admin: Access Management")
 
     active_tab = st.tabs(tabs_list)
 
-    # (Tabs 0-7 remain unchanged to preserve your core application code)
+    # --- TAB 0: AI CNAPP DASHBOARD ---
     with active_tab[0]:
         st.header("🤖 AI-Powered CNAPP Risk Insights")
+        
         total_cspm = len(st.session_state['cspm_results'])
         total_ciem = len(st.session_state['ciem_results'])
         total_dspm = len(st.session_state['dspm_results'])
         total_comp = len(st.session_state['compliance_results'])
+        
         r1, r2, r3, r4, r5 = st.columns(5)
         with r1: st.markdown(f'<div class="cnapp-card"><p>Toxic Paths</p><h2>{total_cspm}</h2></div>', unsafe_allow_html=True)
         with r2: st.markdown(f'<div class="cnapp-card"><p>Misconfigs</p><h2>{total_cspm}</h2></div>', unsafe_allow_html=True)
         with r3: st.markdown(f'<div class="cnapp-card"><p>Identity Risks</p><h2>{total_ciem}</h2></div>', unsafe_allow_html=True)
         with r4: st.markdown(f'<div class="cnapp-card"><p>Data Vulns</p><h2>{total_dspm}</h2></div>', unsafe_allow_html=True)
         with r5: st.markdown(f'<div class="cnapp-card"><p>Compliance Gaps</p><h2>{total_comp}</h2></div>', unsafe_allow_html=True)
+
         st.divider()
         c_left, c_right = st.columns([2, 1])
+
         with c_left:
             st.subheader("🔥 AI-Prioritized Findings")
             if not st.session_state['cspm_results'].empty or not st.session_state['ciem_results'].empty:
                 ai_view = pd.concat([st.session_state['cspm_results'], st.session_state['ciem_results']], ignore_index=True)
                 st.dataframe(ai_view[['Resource', 'Issue', 'Severity', 'Type']], use_container_width=True)
-            else: st.info("No scan data available.")
+            else:
+                st.info("No scan data available. Metrics are currently at zero.")
+            
             st.subheader("TruRisk Insights Trend")
-            chart_data = pd.DataFrame({"Day": ["06/10", "07/10", "08/10", "09/10", "Today"], "Insights": [10, 25, 40, 65, (total_cspm + total_ciem + total_dspm)]})
+            chart_data = pd.DataFrame({
+                "Day": ["06/10", "07/10", "08/10", "09/10", "Today"],
+                "Insights": [10, 25, 40, 65, (total_cspm + total_ciem + total_dspm)]
+            })
             st.line_chart(chart_data, x="Day", y="Insights")
+
         with c_right:
             st.subheader("🎯 Top Insights")
             if not st.session_state['cspm_results'].empty:
                 for _, row in st.session_state['cspm_results'].head(5).iterrows():
                     st.markdown(f'<div class="insight-box">⚠️ <b>{row["Resource"]}</b><br>{row["Issue"]}</div>', unsafe_allow_html=True)
-            else: st.write("Awaiting scan results...")
+            else:
+                st.write("Awaiting scan results to generate top insights...")
 
+    # --- TAB 1: EXECUTIVE DASHBOARD ---
     with active_tab[1]:
         st.header("📊 Cloud Security Posture Overview")
         st.caption(f"⏱️ Last Periodic Scan: {st.session_state['last_scan_time']}")
+        
         all_findings = pd.concat([st.session_state['cspm_results'], st.session_state['ciem_results'], st.session_state['dspm_results']], ignore_index=True)
+        
         crit = len(all_findings[all_findings['Severity'] == 'Critical']) if not all_findings.empty else 0
         high = len(all_findings[all_findings['Severity'] == 'High']) if not all_findings.empty else 0
+        
         m1, m2, m3, m4 = st.columns(4)
-        with m1: st.metric("Critical Issues", crit)
-        with m2: st.metric("High Risk", high)
+        with m1: st.metric("Critical Issues", crit, delta="-2" if crit > 0 else "0")
+        with m2: st.metric("High Risk", high, delta="-5" if high > 0 else "0")
         with m3: st.metric("Connected Tenants", len(st.session_state['integrations']))
         with m4: st.metric("Total Findings", len(all_findings))
+        
         st.divider()
-        if not all_findings.empty: st.bar_chart(all_findings['Severity'].value_counts())
+        st.subheader("Asset Risk Distribution")
+        if not all_findings.empty:
+            st.bar_chart(all_findings['Severity'].value_counts())
 
+    # --- TAB 2: CLOUD INTEGRATION ---
     with active_tab[2]:
         st.header("🔌 Connectivity & Automation")
         col_left, col_right = st.columns(2)
+        
         with col_left:
             st.subheader("Connect New Cloud Provider")
             provider_choice = st.selectbox("Select Provider", ["AWS", "Azure", "GCP"])
-            account_id = st.text_input("Account Name / ID")
+            account_id = st.text_input("Account Name / ID (e.g. Prod-Environment)")
+            
             if provider_choice == "AWS":
                 key = st.text_input("AWS Access Key ID", type="password")
                 secret = st.text_input("AWS Secret Access Key", type="password")
                 region = st.selectbox("Region", ["us-east-1", "us-west-2", "eu-central-1"])
-                if st.button("Add AWS Connection"):
+                if st.button(f"Add {provider_choice} Connection"):
                     if account_id and key and secret:
-                        st.session_state['integrations'][account_id] = {'provider': 'AWS', 'key': key, 'secret': secret, 'region': region}
+                        st.session_state['integrations'][account_id] = {
+                            'provider': 'AWS', 'key': key, 'secret': secret, 'region': region
+                        }
                         st.success(f"AWS Account '{account_id}' saved!")
+                    else:
+                        st.error("Please fill all AWS fields.")
+                        
             elif provider_choice == "Azure":
                 client_id = st.text_input("Client ID", type="password")
                 tenant_id = st.text_input("Tenant ID", type="password")
-                if st.button("Add Azure Connection"):
+                if st.button(f"Add {provider_choice} Connection"):
                     if account_id and client_id and tenant_id:
-                        st.session_state['integrations'][account_id] = {'provider': 'Azure', 'client_id': client_id, 'tenant_id': tenant_id}
+                        st.session_state['integrations'][account_id] = {
+                            'provider': 'Azure', 'client_id': client_id, 'tenant_id': tenant_id
+                        }
                         st.success(f"Azure Account '{account_id}' saved!")
+                    else:
+                        st.error("Please fill all Azure fields.")
+
         with col_right:
             st.subheader("📋 Saved Integrations")
             if st.session_state['integrations']:
@@ -272,12 +307,19 @@ else:
                 if st.button("Clear All Connections"):
                     st.session_state['integrations'] = {}
                     st.rerun()
+            else:
+                st.info("No accounts connected yet.")
 
+    # --- TAB 3: COMPLIANCE & GOVERNANCE ---
     with active_tab[3]:
         st.header("⚖️ Compliance & Governance")
-        if not st.session_state['compliance_results'].empty: st.table(st.session_state['compliance_results'])
-        else: st.info("No compliance data available.")
+        if not st.session_state['compliance_results'].empty:
+            st.subheader("Regulatory Compliance Progress")
+            st.table(st.session_state['compliance_results'])
+        else:
+            st.info("No compliance data available.")
 
+    # --- FUNCTIONAL TABS ---
     with active_tab[4]:
         st.header("🔍 Infrastructure Scan")
         if st.button("⚡ Run CSPM Scan"): run_real_time_scan("CSPM")
@@ -296,77 +338,29 @@ else:
     with active_tab[7]:
         st.header("📋 Master Remediation Table")
         final_df = pd.concat([st.session_state['cspm_results'], st.session_state['ciem_results'], st.session_state['dspm_results']], ignore_index=True)
-        if not final_df.empty: st.dataframe(final_df, use_container_width=True, hide_index=True)
-        else: st.info("No findings to display.")
+        if not final_df.empty:
+            st.dataframe(final_df, use_container_width=True, hide_index=True)
+        else:
+            st.info("No findings to display.")
 
-    # --- TAB 8: ENHANCED ACCESS MANAGEMENT (CRUD) ---
+    # --- TAB 8: ACCESS MANAGEMENT (ADMIN ONLY) ---
     if st.session_state['user_role'] == "Admin":
         with active_tab[8]:
-            st.header("⚙️ User Access Management Console")
+            st.header("⚙️ User Access Management")
+            am_l, am_r = st.columns(2)
             
-            # --- SECTION: CREATE USER ---
-            with st.expander("➕ Create New User", expanded=False):
-                c1, c2, c3 = st.columns(3)
-                nu = c1.text_input("New Username", key="new_u")
-                np = c2.text_input("New Password", type="password", help="Must be 8+ chars, 1 Upper, 1 Lower, 1 Number, 1 Special", key="new_p")
-                nr = c3.selectbox("Role", ["Viewer", "Admin"], key="new_r")
-                
-                if st.button("Register User"):
-                    if nu in st.session_state['user_db']['Username'].values:
-                        st.error("User already exists!")
-                    elif not validate_password(np):
-                        st.error("Password too weak! Needs 8+ characters, Upper, Lower, Number, and Special character.")
-                    elif nu and np:
-                        new_entry = {"Username": nu, "Password": np, "Role": nr}
-                        st.session_state['user_db'] = pd.concat([st.session_state['user_db'], pd.DataFrame([new_entry])], ignore_index=True)
-                        st.success(f"User {nu} created!")
+            with am_l:
+                st.subheader("Create New User")
+                new_user = st.text_input("New Username")
+                new_pass = st.text_input("New Password", type="password")
+                new_role = st.selectbox("Role", ["Viewer", "Admin"])
+                if st.button("Add User"):
+                    if new_user and new_pass:
+                        new_row = {"Username": new_user, "Password": new_pass, "Role": new_role}
+                        st.session_state['user_db'] = pd.concat([st.session_state['user_db'], pd.DataFrame([new_row])], ignore_index=True)
+                        st.success(f"User {new_user} added successfully!")
                         st.rerun()
-
-            st.divider()
-
-            # --- SECTION: EDIT & DELETE USERS ---
-            st.subheader("👥 Existing Users & Permissions")
             
-            # Display clean table first
-            st.dataframe(st.session_state['user_db'][['Username', 'Role']], use_container_width=True)
-            
-            edit_col, del_col = st.columns(2)
-            
-            with edit_col:
-                st.markdown("### ✏️ Edit User")
-                user_to_edit = st.selectbox("Select User to Modify", st.session_state['user_db']['Username'].tolist())
-                
-                # Fetch current values
-                current_data = st.session_state['user_db'][st.session_state['user_db']['Username'] == user_to_edit].iloc[0]
-                
-                new_p_edit = st.text_input("Change Password", placeholder="Leave blank to keep current", type="password")
-                new_r_edit = st.selectbox("Change Role", ["Viewer", "Admin"], index=0 if current_data['Role'] == "Viewer" else 1)
-                
-                if st.button("Update User Permissions"):
-                    idx = st.session_state['user_db'].index[st.session_state['user_db']['Username'] == user_to_edit].tolist()[0]
-                    
-                    # Update Role
-                    st.session_state['user_db'].at[idx, 'Role'] = new_r_edit
-                    
-                    # Update Password if provided
-                    if new_p_edit:
-                        if validate_password(new_p_edit):
-                            st.session_state['user_db'].at[idx, 'Password'] = new_p_edit
-                            st.success(f"Credentials for {user_to_edit} updated!")
-                            st.rerun()
-                        else:
-                            st.error("New password does not meet complexity requirements.")
-                    else:
-                        st.success(f"Role for {user_to_edit} updated!")
-                        st.rerun()
-
-            with del_col:
-                st.markdown("### 🗑️ Delete User")
-                user_to_del = st.selectbox("Select User to Remove", st.session_state['user_db']['Username'].tolist())
-                if st.button("Confirm Deletion", type="primary"):
-                    if user_to_del == "admin":
-                        st.error("Cannot delete the primary root admin account.")
-                    else:
-                        st.session_state['user_db'] = st.session_state['user_db'][st.session_state['user_db']['Username'] != user_to_del]
-                        st.warning(f"User {user_to_del} removed.")
-                        st.rerun()
+            with am_r:
+                st.subheader("Existing Console Users")
+                st.dataframe(st.session_state['user_db'][['Username', 'Role']], use_container_width=True)
