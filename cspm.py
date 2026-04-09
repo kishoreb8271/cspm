@@ -8,9 +8,6 @@ import json
 import re
 from PIL import Image
 
-# --- LOGO CONFIGURATION ---
-LOGO_URL = "https://github.com/kishoreb8271/cspm/blob/main/VantageGuard.png?raw=true"
-
 # Page Configuration
 st.set_page_config(page_title="Cloud Security & Entitlement Manager", layout="wide")
 
@@ -56,15 +53,6 @@ st.markdown(f"""
         font-size: 0.85rem;
         border-radius: 4px;
     }}
-
-    /* Logo Styling */
-    .brand-logo {{
-        display: block;
-        margin-left: auto;
-        margin-right: auto;
-        width: 300px;
-        padding-bottom: 20px;
-    }}
     </style>
     """, unsafe_allow_html=True)
 
@@ -85,8 +73,6 @@ def validate_password(password):
     return re.match(pattern, password)
 
 def login_page():
-    # Adding Logo to Login Page
-    st.image(LOGO_URL, width=400) 
     st.markdown("<h2 style='text-align: center; color: white;'>🔐 Console Login</h2>", unsafe_allow_html=True)
     with st.container():
         col1, col2, col3 = st.columns([1,2,1])
@@ -107,15 +93,13 @@ def login_page():
 if not st.session_state['authenticated']:
     login_page()
 else:
-    # Sidebar Logout, Branding and User Info
-    st.sidebar.image(LOGO_URL, use_container_width=True)
+    # Sidebar Logout and User Info
     st.sidebar.success(f"Logged in as: {st.session_state['user_role']}")
     if st.sidebar.button("Logout"):
         st.session_state['authenticated'] = False
         st.rerun()
 
-    # Main Title with Branding
-    st.markdown(f'<img src="{LOGO_URL}" class="brand-logo">', unsafe_allow_html=True)
+    # Main Title
     st.title("🛡️ VantageGuard Security Manager")
 
     # --- SESSION STATE INITIALIZATION ---
