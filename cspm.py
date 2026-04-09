@@ -147,6 +147,20 @@ else:
             region_name=creds['region']
         )
 
+    def scan_content_for_pii(content):
+        """Helper to scan text for PII/PHI patterns"""
+        findings = []
+        patterns = {
+            "PII (Email/SSN)": r"(\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b|\b\d{3}-\d{2}-\d{4}\b)",
+            "PCI (Credit Card)": r"\b(?:\d[ -]*?){13,16}\b",
+            "HIPAA/PHI (Health ID)": r"\b[A-Z]{3}\d{7}\b", # Example pattern
+            "Secret/API Key": r"(?:key|secret|password|token)[-|_| ]*[:|=][-|_| ]*([A-Za-z0-9/+=]{16,})"
+        }
+        for label, pattern in patterns.items():
+            if re.search(pattern, content, re.IGNORECASE):
+                findings.append(label)
+        return findings
+
     def run_real_time_scan(module_name="Full System"):
         if not st.session_state['integrations']:
             st.warning("No cloud tenants connected. Please go to the Cloud Integration tab.")
@@ -165,31 +179,56 @@ else:
                     try:
                         s3 = get_aws_client('s3', creds)
                         buckets = s3.list_buckets()['Buckets']
+                        
                         for b in buckets:
                             b_name = b['Name']
-                            results_cspm.append({
-                                "Resource": b_name, "Type": "S3", "Severity": "Critical", 
-                                "Issue": "Public Read Access", "Framework": "PCI-DSS", 
-                                "Remediation": "Enable Block Public Access"
-                            })
-                            identified_secret = True 
-                            if identified_secret:
-                                dspm_data.append({
-                                    "Resource": f"s3://{b_name}/", 
-                                    "File_Name": "config_backup.env",
-                                    "Location": f"{b_name}/backup/", 
-                                    "Type": "S3 Bucket", 
-                                    "Severity": "High", 
-                                    "Issue": "Exposed AWS Secret Keys", 
-                                    "Data_Type": "Secret/API Key"
+                            st.write(f"  📂 Inspecting Bucket: {b_name}...")
+                            
+                            # CSPM Check: Public Access
+                            try:
+                                p_access = s3.get_public_access_block(Bucket=b_name)
+                                is_public = not all(p_access['PublicAccessBlockConfiguration'].values())
+                            except:
+                                is_public = True # Assume risky if no block config found
+                                
+                            if is_public:
+                                results_cspm.append({
+                                    "Resource": b_name, "Type": "S3", "Severity": "Critical", 
+                                    "Issue": "Public Access Enabled", "Framework": "PCI-DSS/HIPAA", 
+                                    "Remediation": "Enable Block Public Access"
                                 })
 
+                            # DSPM: File Level Scanning
+                            objects = s3.list_objects_v2(Bucket=b_name, MaxKeys=50) # Limit scan for performance
+                            if 'Contents' in objects:
+                                for obj in objects['Contents']:
+                                    file_key = obj['Key']
+                                    # Scan small text files for PII/PHI/PCI
+                                    if file_key.endswith(('.txt', '.csv', '.json', '.env', '.log')):
+                                        file_obj = s3.get_object(Bucket=b_name, Key=file_key)
+                                        body = file_obj['Body'].read().decode('utf-8', errors='ignore')
+                                        
+                                        found_types = scan_content_for_pii(body)
+                                        
+                                        for data_type in found_types:
+                                            dspm_data.append({
+                                                "Resource": f"s3://{b_name}/", 
+                                                "File_Name": file_key,
+                                                "Location": f"s3://{b_name}/{file_key}", 
+                                                "Type": "S3 Object", 
+                                                "Severity": "High", 
+                                                "Issue": f"Sensitive {data_type} Discovered", 
+                                                "Data_Type": data_type
+                                            })
+
+                        # CIEM Check
                         iam = get_aws_client('iam', creds)
                         users = iam.list_users()['Users']
                         for user in users:
+                            # Mock MFA check for real users
                             ciem_data.append({
                                 "Resource": user['UserName'], "Type": "IAM User", "Severity": "High", 
-                                "Issue": "MFA Disabled", "Framework": "SOC 2", 
+                                "Issue": "MFA Status Not Verified", "Framework": "SOC 2", 
                                 "Remediation": "Enforce MFA Policy"
                             })
                     except Exception as e:
